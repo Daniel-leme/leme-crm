@@ -1,0 +1,18 @@
+# Dependências (cada máquina baixa as suas com npm install)
+node_modules/
+package-lock.json
+
+# Build do frontend
+client/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
