@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { emptyLead } from './constants'
 import {
   apiListLeads, apiCreateLead, apiUpdateLead, apiDeleteLead,
@@ -9,6 +9,7 @@ import LeadForm   from './components/LeadForm'
 import LeadDetail from './components/LeadDetail'
 import Settings   from './components/Settings'
 import LemeLogo   from './components/LemeLogo'
+import { requestNotificationPermission, startNotificationService } from './utils/notifications'
 
 const SIDEBAR_W   = 230
 const HEADER_H    = 56
@@ -22,12 +23,15 @@ export default function App() {
   const [form,       setForm]       = useState(emptyLead())
   const [saving,     setSaving]     = useState(false)
   const [connState,  setConnState]  = useState('checking') // checking | online | offline
+  const [notifPerm,  setNotifPerm]  = useState(null) // null | granted | denied | unsupported
+  const leadsRef = useRef([])
 
   // ─── Carga inicial ─────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
     try {
       const [ls, st] = await Promise.all([apiListLeads(), apiGetSettings()])
       setLeads(ls)
+      leadsRef.current = ls
       setSettings(st)
       setConnState('online')
     } catch (e) {
@@ -40,6 +44,17 @@ export default function App() {
     apiHealth().then(() => setConnState('online')).catch(() => setConnState('offline'))
     refresh()
   }, [refresh])
+
+  // ── Serviço de notificações ──────────────────────────────────────────────
+  useEffect(() => {
+    requestNotificationPermission().then(setNotifPerm)
+    const openLead = (id) => {
+      setSelectedId(id)
+      setView('detail')
+    }
+    const stop = startNotificationService(() => leadsRef.current, openLead)
+    return stop
+  }, [])
 
   // ── Salvar indicador ─────────────────────────────────────────────────────
   const flashSaving = () => {
@@ -241,6 +256,20 @@ export default function App() {
         {/* Content */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '28px' }}>
           <div style={{ maxWidth: CONTENT_MAX, margin: '0 auto' }}>
+            {/* Banner: permissão de notificação negada */}
+            {notifPerm === 'denied' && (
+              <div style={{ background: 'var(--color-amber-bg)', color: 'var(--color-amber-dark)', padding: '10px 16px', borderRadius: 'var(--radius-md)', marginBottom: 12, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <i className="ti ti-bell-off" style={{ fontSize: 15 }} />
+                Notificações bloqueadas no navegador. Vá em Configurações do navegador → Notificações → Permita para este site.
+              </div>
+            )}
+            {notifPerm === 'unsupported' && (
+              <div style={{ background: 'var(--color-gray-bg)', color: 'var(--color-gray-dark)', padding: '10px 16px', borderRadius: 'var(--radius-md)', marginBottom: 12, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <i className="ti ti-bell-off" style={{ fontSize: 15 }} />
+                Seu navegador não suporta notificações.
+              </div>
+            )}
+
             {connState === 'offline' && (
               <div style={{
                 background: 'var(--color-red-bg)', color: 'var(--color-red-dark)',
@@ -264,6 +293,7 @@ export default function App() {
                 onSubmit={submitForm}
                 onCancel={goList}
                 isEditing={leads.some(l => l.id === form.id)}
+                settings={settings}
               />
             )}
 

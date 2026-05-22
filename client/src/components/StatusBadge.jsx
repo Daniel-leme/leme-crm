@@ -1,7 +1,9 @@
 import { STATUS_META } from '../constants'
 
+const FALLBACK = { bg: '#F1EFE8', color: '#2C2C2A', icon: 'ti-circle-dashed' }
+
 export default function StatusBadge({ status, size = 'md' }) {
-  const meta = STATUS_META[status] || STATUS_META['Novo']
+  const meta = STATUS_META[status] || FALLBACK
   const fontSize = size === 'sm' ? '11px' : '12px'
   const padding  = size === 'sm' ? '2px 8px' : '3px 10px'
 

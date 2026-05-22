@@ -1,46 +1,47 @@
-export const BANKS = [
+// Bancos — editável via painel de Configurações (settings.banks sobrescreve esta lista)
+export const DEFAULT_BANKS = [
   'Bradesco', 'Itaú', 'Santander', 'Caixa Econômica', 'Banco do Brasil',
-  'Nubank', 'Sicredi', 'Sicoob', 'BMG', 'BV', 'Pan', 'Safra', 'Inter',
-  'C6 Bank', 'C6 Consignado', 'Outro',
+  'Nubank', 'Sicredi', 'Sicoob', 'BMG', 'BV', 'Pan Americano', 'Safra',
+  'Inter', 'C6 Bank', 'C6 Consignado', 'Daycoval', 'Facta', 'Agibank',
+  'Mercantil', 'Outro',
 ]
 
 export const CONTRACT_TYPES = [
-  'Financiamento de Veículo',
-  'Financiamento Imobiliário',
-  'Empréstimo Pessoal',
-  'Crédito Consignado',
-  'Crédito com Garantia',
-  'Outro',
+  'Financiamento',
+  'Empréstimo',
 ]
 
 export const LEAD_SOURCES = [
-  'Meta (Facebook/Instagram)',
-  'Google Ads',
+  'Anúncio',
   'Orgânico',
   'Indicação',
-  'TikTok',
   'WhatsApp',
   'Outro',
 ]
 
+// Funil fiel ao Excel
 export const STATUSES = [
-  'Novo',
-  'Em Análise',
-  'Aguardando Documentos',
-  'Contrato Enviado',
-  'Em Negociação',
-  'Concluído',
+  '0. Qualificação',
+  '1. Qualificado',
+  '2.0. Envio do contrato',
+  '2.1. Assistência 2ª via',
+  '3.0. Negociação/contrato',
+  '5. Solicitar estorno',
+  '6. Aguardando estorno',
+  '7. Concluído',
   'Cancelado',
 ]
 
 export const STATUS_META = {
-  'Novo':                  { bg: 'var(--color-blue-bg)',   color: 'var(--color-blue-dark)',   icon: 'ti-circle' },
-  'Em Análise':            { bg: 'var(--color-amber-bg)',  color: 'var(--color-amber-dark)',  icon: 'ti-loader' },
-  'Aguardando Documentos': { bg: 'var(--color-pink-bg)',   color: 'var(--color-pink-dark)',   icon: 'ti-paperclip' },
-  'Contrato Enviado':      { bg: 'var(--color-purple-bg)', color: 'var(--color-purple-dark)', icon: 'ti-file-signature' },
-  'Em Negociação':         { bg: 'var(--color-purple-bg)', color: 'var(--color-purple-dark)', icon: 'ti-messages' },
-  'Concluído':             { bg: 'var(--color-green-bg)',  color: 'var(--color-green-dark)',  icon: 'ti-circle-check' },
-  'Cancelado':             { bg: 'var(--color-red-bg)',    color: 'var(--color-red-dark)',    icon: 'ti-circle-x' },
+  '0. Qualificação':        { bg: '#F1EFE8', color: '#2C2C2A', icon: 'ti-circle-dashed' },
+  '1. Qualificado':         { bg: 'var(--color-blue-bg)',   color: 'var(--color-blue-dark)',   icon: 'ti-circle-check' },
+  '2.0. Envio do contrato': { bg: 'var(--color-purple-bg)', color: 'var(--color-purple-dark)', icon: 'ti-file-arrow-right' },
+  '2.1. Assistência 2ª via':{ bg: 'var(--color-amber-bg)',  color: 'var(--color-amber-dark)',  icon: 'ti-headset' },
+  '3.0. Negociação/contrato':{ bg: '#EEEDFE', color: '#3C3489', icon: 'ti-messages' },
+  '5. Solicitar estorno':   { bg: '#FFF3CD', color: '#7A4F00', icon: 'ti-clock-dollar' },
+  '6. Aguardando estorno':  { bg: 'var(--color-pink-bg)',   color: 'var(--color-pink-dark)',   icon: 'ti-hourglass' },
+  '7. Concluído':           { bg: 'var(--color-green-bg)',  color: 'var(--color-green-dark)',  icon: 'ti-trophy' },
+  'Cancelado':              { bg: 'var(--color-red-bg)',    color: 'var(--color-red-dark)',    icon: 'ti-circle-x' },
 }
 
 export const genId = () =>
@@ -62,8 +63,12 @@ export const fmtCpf = (v) => {
   return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`
 }
 
+export const fmtCurrency = (v) => {
+  const n = parseFloat(v) || 0
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
 export const fmtDate = (v) => {
-  // espera yyyy-mm-dd ou dd/mm/yyyy. Normaliza para dd/mm/yyyy de exibição.
   if (!v) return ''
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
     const [y, m, d] = v.split('-')
@@ -81,13 +86,17 @@ export const emptyLead = () => ({
   email: '',
   phone: '',
   address: '',
+  responsible: '',
   bank: '',
   contractType: '',
   contractNumber: '',
   source: '',
-  status: 'Novo',
+  status: '0. Qualificação',
   feePercent: 50,
+  embeddedValue: '',   // Valor embutido (produto indevido)
+  productsCount: '',   // Qtd de produtos indevidos detectados
   notes: '',
+  nextContact: '',
   contractFile: null,
   contractName: '',
   createdAt: new Date().toISOString(),
