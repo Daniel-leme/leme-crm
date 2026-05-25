@@ -5,7 +5,7 @@ package-lock.json
 # Build do frontend
 client/dist/
 
-# Logs
+# Logsgit
 *.log
 npm-debug.log*
 

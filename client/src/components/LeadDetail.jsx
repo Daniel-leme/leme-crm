@@ -177,7 +177,7 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
         <InfoRow icon="ti-target"           label="Origem"        value={lead.source} />
         <InfoRow icon="ti-calendar"         label="Cadastrado em" value={createdAt} />
         {lead.nextContact && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--color-border)', background: 'var(--color-amber-bg)', margin: '4px -20px -1px', padding: '10px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 20px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-amber-bg)', margin: '4px -20px -1px' }}>
             <i className="ti ti-bell-ringing" style={{ fontSize: 16, color: 'var(--color-amber-dark)', flexShrink: 0 }} aria-hidden="true" />
             <span style={{ fontSize: 12, color: 'var(--color-amber-dark)', fontWeight: 500 }}>
               Próximo contato: {new Date(lead.nextContact).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
