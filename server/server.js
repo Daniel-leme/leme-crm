@@ -31,6 +31,28 @@ function get(db, sql, params = []) {
 
 const db = new sqlite3.Database(DB_PATH)
 
+const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+
+// Mapeamento de status antigos para novos (funil comercial)
+const STATUS_MIGRATION_MAP = {
+  '0. Qualificação':         '1. Qualificação',
+  '1. Qualificado':          '2. Qualificado',
+  '2.0. Envio do contrato':  '3. Revisão',
+  '2.1. Assistência 2ª via': '3. Revisão',
+  '3.0. Negociação/contrato':'4. Negociação',
+  '5. Solicitar estorno':    '5. Contrato Assinado',
+  '6. Aguardando estorno':   '5. Contrato Assinado',
+  '7. Concluído':            '5. Contrato Assinado',
+  'Cancelado':               'Perdido',
+}
+
+// Status antigo → status da operação correspondente
+const OPERATION_STATUS_MAP = {
+  '5. Solicitar estorno':    '7. Solicitação de Estorno',
+  '6. Aguardando estorno':   '8. Aguardando Estorno',
+  '7. Concluído':            '11. Concluído',
+}
+
 async function initDb() {
   await run(db, `
     CREATE TABLE IF NOT EXISTS leads (
@@ -47,7 +69,7 @@ async function initDb() {
       contractType    TEXT,
       contractNumber  TEXT,
       source          TEXT,
-      status          TEXT DEFAULT '0. Qualificação',
+      status          TEXT DEFAULT '1. Qualificação',
       feePercent      INTEGER DEFAULT 50,
       embeddedValue   REAL DEFAULT 0,
       productsCount   INTEGER DEFAULT 0,
@@ -67,6 +89,76 @@ async function initDb() {
   if (!colNames.includes('embeddedValue')) await run(db, `ALTER TABLE leads ADD COLUMN embeddedValue REAL DEFAULT 0`)
   if (!colNames.includes('nextContact'))   await run(db, `ALTER TABLE leads ADD COLUMN nextContact TEXT DEFAULT ''`)
   if (!colNames.includes('productsCount')) await run(db, `ALTER TABLE leads ADD COLUMN productsCount INTEGER DEFAULT 0`)
+  if (!colNames.includes('adSource'))      await run(db, `ALTER TABLE leads ADD COLUMN adSource TEXT DEFAULT ''`)
+  if (!colNames.includes('lossReason'))    await run(db, `ALTER TABLE leads ADD COLUMN lossReason TEXT DEFAULT ''`)
+  if (!colNames.includes('lastActiveStatus')) await run(db, `ALTER TABLE leads ADD COLUMN lastActiveStatus TEXT DEFAULT ''`)
+  if (!colNames.includes('adCampaign'))    await run(db, `ALTER TABLE leads ADD COLUMN adCampaign TEXT DEFAULT ''`)
+  if (!colNames.includes('adSet'))         await run(db, `ALTER TABLE leads ADD COLUMN adSet TEXT DEFAULT ''`)
+  if (!colNames.includes('adName'))        await run(db, `ALTER TABLE leads ADD COLUMN adName TEXT DEFAULT ''`)
+  if (!colNames.includes('isLost'))        await run(db, `ALTER TABLE leads ADD COLUMN isLost INTEGER DEFAULT 0`)
+
+  // Migrar leads com status='Perdido' (modelo antigo) para isLost=1 + restaurar lastActiveStatus como status
+  const oldLostLeads = await all(db, `SELECT * FROM leads WHERE status = 'Perdido'`)
+  for (const lead of oldLostLeads) {
+    const restoreStatus = lead.lastActiveStatus || '1. Qualificação'
+    await run(db, `UPDATE leads SET status=?, isLost=1 WHERE id=?`, [restoreStatus, lead.id])
+  }
+
+  // Tabela de operações
+  await run(db, `
+    CREATE TABLE IF NOT EXISTS operations (
+      id                TEXT PRIMARY KEY,
+      lead_id           TEXT NOT NULL UNIQUE,
+      status            TEXT DEFAULT '6. Documentação',
+      isLost            INTEGER DEFAULT 0,
+      lossReason        TEXT DEFAULT '',
+      lastActiveStatus  TEXT DEFAULT '',
+      responsible       TEXT,
+      notes             TEXT,
+      distributionNotes TEXT,
+      embeddedValue     REAL DEFAULT 0,
+      feePercent        INTEGER DEFAULT 50,
+      repaymentValue    REAL DEFAULT 0,
+      createdAt         TEXT NOT NULL,
+      updatedAt         TEXT NOT NULL,
+      FOREIGN KEY (lead_id) REFERENCES leads(id)
+    )
+  `)
+  // Migração: adicionar colunas novas em operations se já existia
+  const opCols = await all(db, `PRAGMA table_info(operations)`)
+  const opColNames = opCols.map(c => c.name)
+  if (!opColNames.includes('isLost'))           await run(db, `ALTER TABLE operations ADD COLUMN isLost INTEGER DEFAULT 0`)
+  if (!opColNames.includes('lossReason'))       await run(db, `ALTER TABLE operations ADD COLUMN lossReason TEXT DEFAULT ''`)
+  if (!opColNames.includes('lastActiveStatus')) await run(db, `ALTER TABLE operations ADD COLUMN lastActiveStatus TEXT DEFAULT ''`)
+
+  // Migração de status antigos para novos no funil comercial
+  for (const [oldStatus, newStatus] of Object.entries(STATUS_MIGRATION_MAP)) {
+    await run(db, `UPDATE leads SET status = ? WHERE status = ?`, [newStatus, oldStatus])
+  }
+
+  // Migrar 'Cancelado' → 'Perdido' (caso tenha restado algum)
+  await run(db, `UPDATE leads SET status = 'Perdido' WHERE status = 'Cancelado'`)
+
+  // Criar operações retroativas para leads em '5. Contrato Assinado' que não têm operação
+  const leadsWithContract = await all(db, `SELECT * FROM leads WHERE status = '5. Contrato Assinado'`)
+  const now = new Date().toISOString()
+  for (const lead of leadsWithContract) {
+    const existing = await get(db, `SELECT id FROM operations WHERE lead_id = ?`, [lead.id])
+    if (!existing) {
+      await run(db, `
+        INSERT INTO operations (id, lead_id, status, responsible, embeddedValue, feePercent, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [genId(), lead.id, '6. Documentação', lead.responsible || '', parseFloat(lead.embeddedValue) || 0, lead.feePercent || 50, now, now])
+    }
+  }
+
+  // Criar operações retroativas para leads cujos status antigos mapeavam para operações em andamento
+  // Esses já foram migrados para '5. Contrato Assinado' acima, mas precisamos ajustar o status da operação
+  // O mapeamento é feito com base no status antigo que foi convertido — não temos mais essa info.
+  // Porém, os leads que tinham '5. Solicitar estorno' / '6. Aguardando estorno' / '7. Concluído'
+  // foram todos migrados para '5. Contrato Assinado' e a operação foi criada com '6. Documentação'.
+  // Para corrigi-los, precisaríamos de outra fonte de dado — deixamos em '6. Documentação' como estado neutro
+  // pois não há como saber qual era o status operacional sem uma coluna de histórico.
 
   await run(db, `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`)
 
@@ -113,21 +205,24 @@ app.post('/api/leads', async (req, res) => {
   try {
     const l = req.body
     const now = new Date().toISOString()
-    const id = l.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7))
+    const id = l.id || genId()
     await run(db, `
       INSERT INTO leads (
         id, name, cpf, rg, birthDate, email, phone, address, responsible,
-        bank, contractType, contractNumber, source, status,
+        bank, contractType, contractNumber, source, adSource, adCampaign, adSet, adName, status,
         feePercent, embeddedValue, productsCount, notes,
-        contractFile, contractName, nextContact, createdAt, updatedAt
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        contractFile, contractName, nextContact, lossReason, lastActiveStatus,
+        createdAt, updatedAt
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `, [
       id, l.name||'', l.cpf||'', l.rg||'', l.birthDate||'', l.email||'',
       l.phone||'', l.address||'', l.responsible||'',
       l.bank||'', l.contractType||'', l.contractNumber||'', l.source||'',
-      l.status||'0. Qualificação', l.feePercent??50,
+      l.adSource||'', l.adCampaign||'', l.adSet||'', l.adName||'',
+      l.status||'1. Qualificação', l.feePercent??50,
       parseFloat(l.embeddedValue)||0, parseInt(l.productsCount)||0,
       l.notes||'', l.contractFile||null, l.contractName||'', l.nextContact||'',
+      l.lossReason||'', l.lastActiveStatus||'',
       l.createdAt||now, now,
     ])
     res.status(201).json(await get(db, 'SELECT * FROM leads WHERE id = ?', [id]))
@@ -140,23 +235,79 @@ app.put('/api/leads/:id', async (req, res) => {
     const now = new Date().toISOString()
     const ex = await get(db, 'SELECT * FROM leads WHERE id = ?', [req.params.id])
     if (!ex) return res.status(404).json({ error: 'Lead não encontrado' })
+
+    // Lógica de perda VERTICAL: o lead permanece no status atual, isLost=1 o inativa nele
+    // isLost pode vir no body como true/false/1/0, ou permanecer como está
+    const requestingLoss   = l.isLost === true  || l.isLost === 1
+    const requestingRevive = l.isLost === false || l.isLost === 0
+    let newIsLost = ex.isLost
+    let lossReason = l.lossReason ?? ex.lossReason
+    let lastActiveStatus = ex.lastActiveStatus
+
+    if (requestingLoss && !ex.isLost) {
+      newIsLost = 1
+      lastActiveStatus = ex.status  // memoriza em qual status perdeu
+    } else if (requestingRevive && ex.isLost) {
+      newIsLost = 0
+      lossReason = ''
+    }
+
+    // status só muda se não estiver sendo marcado como perdido
+    // e não pode marcar perda no status '5. Contrato Assinado' pelo funil comercial
+    const newStatus = l.status ?? ex.status
+    const newEmbedded   = parseFloat(l.embeddedValue ?? ex.embeddedValue) || 0
+    const newFeePercent = l.feePercent ?? ex.feePercent
+
     await run(db, `
       UPDATE leads SET
         name=?,cpf=?,rg=?,birthDate=?,email=?,phone=?,address=?,responsible=?,
-        bank=?,contractType=?,contractNumber=?,source=?,status=?,
-        feePercent=?,embeddedValue=?,productsCount=?,notes=?,
-        contractFile=?,contractName=?,nextContact=?,updatedAt=?
+        bank=?,contractType=?,contractNumber=?,source=?,adSource=?,adCampaign=?,adSet=?,adName=?,
+        status=?,isLost=?,feePercent=?,embeddedValue=?,productsCount=?,notes=?,
+        contractFile=?,contractName=?,nextContact=?,lossReason=?,lastActiveStatus=?,
+        updatedAt=?
       WHERE id=?
     `, [
       l.name??ex.name, l.cpf??ex.cpf, l.rg??ex.rg, l.birthDate??ex.birthDate,
       l.email??ex.email, l.phone??ex.phone, l.address??ex.address, l.responsible??ex.responsible,
       l.bank??ex.bank, l.contractType??ex.contractType, l.contractNumber??ex.contractNumber,
-      l.source??ex.source, l.status??ex.status, l.feePercent??ex.feePercent,
-      parseFloat(l.embeddedValue??ex.embeddedValue)||0,
+      l.source??ex.source, l.adSource??ex.adSource,
+      l.adCampaign??ex.adCampaign, l.adSet??ex.adSet, l.adName??ex.adName,
+      newStatus, newIsLost, newFeePercent,
+      newEmbedded,
       parseInt(l.productsCount??ex.productsCount)||0,
-      l.notes??ex.notes, l.contractFile??ex.contractFile, l.contractName??ex.contractName, (l.nextContact??ex.nextContact)||'',
+      l.notes??ex.notes, l.contractFile??ex.contractFile, l.contractName??ex.contractName,
+      (l.nextContact??ex.nextContact)||'',
+      lossReason, lastActiveStatus,
       now, req.params.id,
     ])
+
+    // Sincronizar embeddedValue e feePercent na operação vinculada (dados financeiros são do lead)
+    await run(db, `
+      UPDATE operations SET embeddedValue=?, feePercent=?, updatedAt=? WHERE lead_id=?
+    `, [newEmbedded, newFeePercent, now, req.params.id])
+
+    // Trigger: se chegou em '5. Contrato Assinado', criar operação se não existir
+    if (newStatus === '5. Contrato Assinado') {
+      const existingOp = await get(db, `SELECT id FROM operations WHERE lead_id = ?`, [req.params.id])
+      if (!existingOp) {
+        const updatedLead = await get(db, 'SELECT * FROM leads WHERE id = ?', [req.params.id])
+        await run(db, `
+          INSERT INTO operations (id, lead_id, status, responsible, embeddedValue, feePercent, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          genId(), req.params.id, '6. Documentação',
+          updatedLead.responsible || '', parseFloat(updatedLead.embeddedValue) || 0,
+          updatedLead.feePercent || 50, now, now,
+        ])
+      }
+    }
+
+    // Trigger: se saiu de '5. Contrato Assinado' para status anterior (movimento de volta),
+    // deletar a operação vinculada — ela não deve mais existir
+    if (ex.status === '5. Contrato Assinado' && newStatus !== '5. Contrato Assinado' && !newIsLost) {
+      await run(db, `DELETE FROM operations WHERE lead_id = ?`, [req.params.id])
+    }
+
     res.json(await get(db, 'SELECT * FROM leads WHERE id = ?', [req.params.id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
@@ -164,6 +315,128 @@ app.put('/api/leads/:id', async (req, res) => {
 app.delete('/api/leads/:id', async (req, res) => {
   try { await run(db, 'DELETE FROM leads WHERE id = ?', [req.params.id]); res.json({ ok: true }) }
   catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ─── Operations ───────────────────────────────────────────────────────────────
+
+// IMPORTANTE: rota específica antes da rota com :id
+app.get('/api/operations/by-lead/:lead_id', async (req, res) => {
+  try {
+    const op = await get(db, `
+      SELECT o.*, l.name as lead_name, l.phone as lead_phone, l.bank as lead_bank,
+             l.source as lead_source, l.adSource as lead_adSource,
+             l.adCampaign as lead_adCampaign, l.adSet as lead_adSet, l.adName as lead_adName,
+             l.cpf as lead_cpf, l.responsible as lead_responsible,
+             l.embeddedValue as lead_embeddedValue, l.feePercent as lead_feePercent
+      FROM operations o
+      JOIN leads l ON l.id = o.lead_id
+      WHERE o.lead_id = ?
+    `, [req.params.lead_id])
+    if (!op) return res.status(404).json({ error: 'Operação não encontrada' })
+    res.json(op)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.get('/api/operations', async (req, res) => {
+  try {
+    const rows = await all(db, `
+      SELECT o.*, l.name as lead_name, l.phone as lead_phone, l.bank as lead_bank,
+             l.source as lead_source, l.adSource as lead_adSource,
+             l.adCampaign as lead_adCampaign, l.adSet as lead_adSet, l.adName as lead_adName,
+             l.cpf as lead_cpf, l.responsible as lead_responsible,
+             l.embeddedValue as lead_embeddedValue, l.feePercent as lead_feePercent
+      FROM operations o
+      JOIN leads l ON l.id = o.lead_id
+      ORDER BY o.createdAt DESC
+    `)
+    res.json(rows)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.get('/api/operations/:id', async (req, res) => {
+  try {
+    const op = await get(db, `
+      SELECT o.*, l.name as lead_name, l.phone as lead_phone, l.bank as lead_bank,
+             l.source as lead_source, l.adSource as lead_adSource,
+             l.adCampaign as lead_adCampaign, l.adSet as lead_adSet, l.adName as lead_adName,
+             l.cpf as lead_cpf, l.responsible as lead_responsible,
+             l.embeddedValue as lead_embeddedValue, l.feePercent as lead_feePercent
+      FROM operations o
+      JOIN leads l ON l.id = o.lead_id
+      WHERE o.id = ?
+    `, [req.params.id])
+    if (!op) return res.status(404).json({ error: 'Operação não encontrada' })
+    res.json(op)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.put('/api/operations/:id', async (req, res) => {
+  try {
+    const d = req.body
+    const now = new Date().toISOString()
+    const ex = await get(db, 'SELECT * FROM operations WHERE id = ?', [req.params.id])
+    if (!ex) return res.status(404).json({ error: 'Operação não encontrada' })
+
+    // Mesma lógica de perda vertical do funil comercial
+    const requestingLoss   = d.isLost === true  || d.isLost === 1
+    const requestingRevive = d.isLost === false || d.isLost === 0
+    let newIsLost = ex.isLost
+    let opLossReason = d.lossReason ?? ex.lossReason
+    let opLastActive = ex.lastActiveStatus
+
+    if (requestingLoss && !ex.isLost) {
+      newIsLost = 1
+      opLastActive = ex.status
+    } else if (requestingRevive && ex.isLost) {
+      newIsLost = 0
+      opLossReason = ''
+    }
+
+    const newStatus = d.status ?? ex.status
+
+    await run(db, `
+      UPDATE operations SET
+        status=?, isLost=?, lossReason=?, lastActiveStatus=?,
+        responsible=?, notes=?, distributionNotes=?,
+        repaymentValue=?, updatedAt=?
+      WHERE id=?
+    `, [
+      newStatus, newIsLost, opLossReason, opLastActive,
+      d.responsible ?? ex.responsible,
+      d.notes ?? ex.notes,
+      d.distributionNotes ?? ex.distributionNotes,
+      parseFloat(d.repaymentValue ?? ex.repaymentValue) || 0,
+      now, req.params.id,
+    ])
+
+    // Propagação de perda operacional → comercial
+    // Quando a operação é marcada como perdida, o lead comercial também perde.
+    // lastActiveStatus do lead recebe o status da operação (ex: "7. Solicitação de Estorno")
+    if (requestingLoss && !ex.isLost) {
+      await run(db, `
+        UPDATE leads SET isLost=1, lossReason=?, lastActiveStatus=?, updatedAt=?
+        WHERE id=?
+      `, [opLossReason, ex.status, now, ex.lead_id])
+    }
+
+    // Quando a operação é reativada, reativa também o lead comercial
+    if (requestingRevive && ex.isLost) {
+      await run(db, `
+        UPDATE leads SET isLost=0, lossReason='', updatedAt=?
+        WHERE id=?
+      `, [now, ex.lead_id])
+    }
+
+    res.json(await get(db, `
+      SELECT o.*, l.name as lead_name, l.phone as lead_phone, l.bank as lead_bank,
+             l.source as lead_source, l.adSource as lead_adSource,
+             l.adCampaign as lead_adCampaign, l.adSet as lead_adSet, l.adName as lead_adName,
+             l.cpf as lead_cpf, l.responsible as lead_responsible,
+             l.embeddedValue as lead_embeddedValue, l.feePercent as lead_feePercent
+      FROM operations o JOIN leads l ON l.id = o.lead_id
+      WHERE o.id = ?
+    `, [req.params.id]))
+  } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 // ─── Settings ─────────────────────────────────────────────────────────────────

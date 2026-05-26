@@ -19,35 +19,75 @@ export const LEAD_SOURCES = [
   'Outro',
 ]
 
-// Funil fiel ao Excel
-export const STATUSES = [
-  '0. Qualificação',
-  '1. Qualificado',
-  '2.0. Envio do contrato',
-  '2.1. Assistência 2ª via',
-  '3.0. Negociação/contrato',
-  '5. Solicitar estorno',
-  '6. Aguardando estorno',
-  '7. Concluído',
-  'Cancelado',
+// ─── Funil Comercial ──────────────────────────────────────────────────────────
+
+export const COMMERCIAL_STATUSES = [
+  '0. Novo Lead',
+  '1. Qualificação',
+  '2. Qualificado',
+  '3. Revisão',
+  '4. Negociação',
+  '5. Contrato Assinado',
 ]
 
-export const STATUS_META = {
-  '0. Qualificação':        { bg: '#F1EFE8', color: '#2C2C2A', icon: 'ti-circle-dashed' },
-  '1. Qualificado':         { bg: 'var(--color-blue-bg)',   color: 'var(--color-blue-dark)',   icon: 'ti-circle-check' },
-  '2.0. Envio do contrato': { bg: 'var(--color-purple-bg)', color: 'var(--color-purple-dark)', icon: 'ti-file-arrow-right' },
-  '2.1. Assistência 2ª via':{ bg: 'var(--color-amber-bg)',  color: 'var(--color-amber-dark)',  icon: 'ti-headset' },
-  '3.0. Negociação/contrato':{ bg: '#EEEDFE', color: '#3C3489', icon: 'ti-messages' },
-  '5. Solicitar estorno':   { bg: '#FFF3CD', color: '#7A4F00', icon: 'ti-clock-dollar' },
-  '6. Aguardando estorno':  { bg: 'var(--color-pink-bg)',   color: 'var(--color-pink-dark)',   icon: 'ti-hourglass' },
-  '7. Concluído':           { bg: 'var(--color-green-bg)',  color: 'var(--color-green-dark)',  icon: 'ti-trophy' },
-  'Cancelado':              { bg: 'var(--color-red-bg)',    color: 'var(--color-red-dark)',    icon: 'ti-circle-x' },
+// Perdido não é um status — é um sub-estado (isLost=1) dentro de qualquer status 0~4
+// O lead permanece no seu status atual, mas fica inativo (isLost=true)
+export const COMMERCIAL_LOSS_STATUSES = ['Perdido'] // mantido apenas para compatibilidade de badge
+
+export const LOSS_REASONS = [
+  'Desqualificado',
+  'Sem Valores',
+  'Sem Contato',
+  'Desistiu',
+]
+
+export const COMMERCIAL_STATUS_META = {
+  '0. Novo Lead':       { bg: '#F1EFE8',                      color: '#5C5C5A',                     icon: 'ti-user-plus' },
+  '1. Qualificação':    { bg: '#FFF8E1',                      color: '#B45309',                     icon: 'ti-phone' },
+  '2. Qualificado':     { bg: 'var(--color-blue-bg)',          color: 'var(--color-blue-dark)',       icon: 'ti-circle-check' },
+  '3. Revisão':         { bg: 'var(--color-purple-bg)',        color: 'var(--color-purple-dark)',     icon: 'ti-file-search' },
+  '4. Negociação':      { bg: '#FFF0E6',                      color: '#C05B00',                     icon: 'ti-messages' },
+  '5. Contrato Assinado': { bg: '#D4EDDA',                    color: '#155724',                     icon: 'ti-file-check' },
+  'Perdido':            { bg: 'var(--color-red-bg)',           color: 'var(--color-red-dark)',        icon: 'ti-circle-x' },
 }
+
+// ─── Funil Operacional ────────────────────────────────────────────────────────
+
+export const OPERATIONAL_STATUSES = [
+  '6. Documentação',
+  '7. Solicitação de Estorno',
+  '8. Aguardando Estorno',
+  '9. Cobrança',
+  '10. Transferência de Repasses',
+  '11. Concluído',
+]
+
+// Perdido operacional = sub-estado (isLost) dentro de qualquer status 6~10
+export const OPERATIONAL_LOSS_STATUSES = ['Perdido']
+
+export const OPERATIONAL_STATUS_META = {
+  '6. Documentação':              { bg: '#E3F2FD', color: '#1565C0', icon: 'ti-file-text' },
+  '7. Solicitação de Estorno':    { bg: '#FFF8E1', color: '#F57F17', icon: 'ti-send' },
+  '8. Aguardando Estorno':        { bg: '#FFF3E0', color: '#E65100', icon: 'ti-hourglass' },
+  '9. Cobrança':                  { bg: '#F3E5F5', color: '#6A1B9A', icon: 'ti-cash' },
+  '10. Transferência de Repasses':{ bg: '#C8E6C9', color: '#1B5E20', icon: 'ti-transfer' },
+  '11. Concluído':                { bg: '#A5D6A7', color: '#1B5E20', icon: 'ti-trophy' },
+  'Perdido':                      { bg: 'var(--color-red-bg)', color: 'var(--color-red-dark)', icon: 'ti-circle-x' },
+}
+
+// Compatibilidade: STATUS_META e STATUSES combinados para StatusBadge e outros usos legados
+export const STATUSES = [...COMMERCIAL_STATUSES, ...COMMERCIAL_LOSS_STATUSES]
+
+export const STATUS_META = {
+  ...COMMERCIAL_STATUS_META,
+  ...OPERATIONAL_STATUS_META,
+}
+
+// ─── Utilitários ──────────────────────────────────────────────────────────────
 
 export const genId = () =>
   Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 
-// ─── Formatters ───────────────────────────────────────────────────────────────
 export const fmtPhone = (v) => {
   const d = (v || '').replace(/\D/g, '').slice(0, 11)
   if (d.length <= 2) return d
@@ -91,12 +131,18 @@ export const emptyLead = () => ({
   contractType: '',
   contractNumber: '',
   source: '',
-  status: '0. Qualificação',
+  adSource: '',
+  adCampaign: '',
+  adSet: '',
+  adName: '',
+  status: '0. Novo Lead',
   feePercent: 50,
-  embeddedValue: '',   // Valor embutido (produto indevido)
-  productsCount: '',   // Qtd de produtos indevidos detectados
+  embeddedValue: '',
+  productsCount: '',
   notes: '',
   nextContact: '',
+  lossReason: '',
+  lastActiveStatus: '',
   contractFile: null,
   contractName: '',
   createdAt: new Date().toISOString(),

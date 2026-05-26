@@ -46,3 +46,12 @@ export const apiUpdateSettings = (obj)    => fetch(url('/api/settings'), {
 
 // Health
 export const apiHealth = () => fetch(url('/api/health')).then(handle)
+
+// Operations
+export const apiListOperations       = ()         => fetch(url('/api/operations')).then(handle)
+export const apiGetOperation         = (id)       => fetch(url(`/api/operations/${id}`)).then(handle)
+export const apiGetOperationByLead   = (leadId)   => fetch(url(`/api/operations/by-lead/${leadId}`)).then(handle)
+export const apiUpdateOperation      = (id, data) => fetch(url(`/api/operations/${id}`), {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data),
+}).then(handle)

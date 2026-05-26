@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { CONTRACT_TYPES, LEAD_SOURCES, STATUSES, DEFAULT_BANKS, fmtPhone, fmtCpf } from '../constants'
+import { CONTRACT_TYPES, LEAD_SOURCES, COMMERCIAL_STATUSES, DEFAULT_BANKS, fmtPhone, fmtCpf } from '../constants'
 
 function Field({ label, hint, children, full, half }) {
   const col = full ? '1 / -1' : half ? 'auto' : 'auto'
@@ -62,7 +62,7 @@ export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing
         </Field>
         <Field label="Etapa do funil">
           <select value={form.status} onChange={e => set('status', e.target.value)}>
-            {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            {COMMERCIAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
       </div>
@@ -116,6 +116,32 @@ export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing
             <option value="">Selecionar…</option>
             {LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
+        </Field>
+      </div>
+
+      {/* ── Meta Ads ──────────────────────────────────────────────────────── */}
+      <SectionTitle icon="ti-ad-2" label="Meta Ads (opcional)" />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+        <Field label="Campanha" hint="Nome da campanha no Meta Ads">
+          <input
+            value={form.adCampaign||''}
+            onChange={e => set('adCampaign', e.target.value)}
+            placeholder="Ex: Recuperação Bancária BR"
+          />
+        </Field>
+        <Field label="Conjunto de Anúncios" hint="Ad Set / Grupo de anúncios">
+          <input
+            value={form.adSet||''}
+            onChange={e => set('adSet', e.target.value)}
+            placeholder="Ex: Santander 45-60"
+          />
+        </Field>
+        <Field label="Anúncio" hint="Nome do criativo / anúncio específico">
+          <input
+            value={form.adName||''}
+            onChange={e => set('adName', e.target.value)}
+            placeholder="Ex: AD001 – Vídeo Depoimento"
+          />
         </Field>
       </div>
 

@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react'
-import { STATUSES, STATUS_META, fmtDate, fmtCurrency } from '../constants'
+import { useState, useRef, useEffect } from 'react'
+import { COMMERCIAL_STATUSES, COMMERCIAL_LOSS_STATUSES, COMMERCIAL_STATUS_META, LOSS_REASONS, fmtDate, fmtCurrency } from '../constants'
 import StatusBadge from './StatusBadge'
 import { generateContractPDF } from '../utils/contractPdf'
+import { apiGetOperationByLead } from '../utils/api'
 
 function InfoRow({ icon, label, value }) {
   if (!value) return null
@@ -28,49 +29,23 @@ function ReportCard({ lead, settings, reportRef, reportValue }) {
       boxShadow: '0 4px 24px rgba(0,0,0,0.13)',
       background: '#fff',
     }}>
-      {/* Cabeçalho preto */}
       <div style={{ background: 'linear-gradient(135deg, #1A1917 0%, #2C2A27 100%)', padding: '18px 20px' }}>
         <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.6)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           {settings?.companyName || 'Leme Financeira'}
         </p>
         <h2 style={{ margin: '4px 0 0', fontSize: 17, fontWeight: 700, color: '#fff' }}>Relatório de Análise</h2>
       </div>
-
-      {/* Itens */}
       <div style={{ padding: '0 20px 20px' }}>
         {[
-          {
-            icon: 'ti-user-circle',
-            label: 'Responsável',
-            value: <span style={{ fontWeight: 600 }}>{(lead.name || '').toUpperCase()}</span>,
-          },
-          {
-            icon: 'ti-alert-circle',
-            label: 'Produtos Indevidos',
-            value: products > 0
-              ? <span style={{ background: '#FDECEA', color: '#C0392B', padding: '3px 10px', borderRadius: 99, fontSize: 12, fontWeight: 600 }}>
-                  {products} produto{products !== 1 ? 's' : ''} detectado{products !== 1 ? 's' : ''}
-                </span>
-              : <span style={{ color: '#999', fontSize: 13 }}>Análise em andamento</span>,
-          },
-          {
-            icon: 'ti-calendar',
-            label: 'Data da Análise',
-            value: <span style={{ fontWeight: 500 }}>{today}</span>,
-          },
-          {
-            icon: 'ti-clock',
-            label: 'Prazo para Recebimento',
-            value: <span style={{ fontWeight: 600 }}>No máximo 5 dias úteis</span>,
-          },
-          {
-            icon: 'ti-bolt',
-            label: 'Valor Estimado para Recuperar',
-            value: value > 0
-              ? <span style={{ fontSize: 22, fontWeight: 700, color: '#1A1917' }}>{fmtCurrency(value)}</span>
-              : <span style={{ color: '#999', fontSize: 13 }}>A calcular</span>,
-            highlight: value > 0,
-          },
+          { icon: 'ti-user-circle', label: 'Responsável', value: <span style={{ fontWeight: 600 }}>{(lead.name || '').toUpperCase()}</span> },
+          { icon: 'ti-alert-circle', label: 'Produtos Indevidos', value: products > 0
+            ? <span style={{ background: '#FDECEA', color: '#C0392B', padding: '3px 10px', borderRadius: 99, fontSize: 12, fontWeight: 600 }}>{products} produto{products !== 1 ? 's' : ''} detectado{products !== 1 ? 's' : ''}</span>
+            : <span style={{ color: '#999', fontSize: 13 }}>Análise em andamento</span> },
+          { icon: 'ti-calendar', label: 'Data da Análise', value: <span style={{ fontWeight: 500 }}>{today}</span> },
+          { icon: 'ti-clock', label: 'Prazo para Recebimento', value: <span style={{ fontWeight: 600 }}>No máximo 5 dias úteis</span> },
+          { icon: 'ti-bolt', label: 'Valor Estimado para Recuperar', value: value > 0
+            ? <span style={{ fontSize: 22, fontWeight: 700, color: '#1A1917' }}>{fmtCurrency(value)}</span>
+            : <span style={{ color: '#999', fontSize: 13 }}>A calcular</span>, highlight: value > 0 },
         ].map((item, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: i < 4 ? '1px solid #F0EDE8' : 'none' }}>
             <div style={{ width: 36, height: 36, borderRadius: '50%', background: item.highlight ? '#EBEBEB' : '#F5F3EF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -83,8 +58,6 @@ function ReportCard({ lead, settings, reportRef, reportValue }) {
           </div>
         ))}
       </div>
-
-      {/* Footer */}
       <div style={{ background: '#F7F5F0', padding: '12px 20px', textAlign: 'center' }}>
         <p style={{ margin: 0, fontSize: 11, color: '#999' }}>
           {settings?.companyName || 'Leme Financeira'} · CNPJ {settings?.companyCnpj || ''}
@@ -95,18 +68,38 @@ function ReportCard({ lead, settings, reportRef, reportValue }) {
 }
 
 // ─── LeadDetail principal ─────────────────────────────────────────────────────
-export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusChange }) {
+export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusChange, onOpenOperation }) {
   const [previewContract, setPreviewContract] = useState(null)
   const [showReport, setShowReport]           = useState(false)
-  // Valor editável só para o relatório — pré-preenche com o valor embutido do lead
   const [reportValue, setReportValue]         = useState(lead.embeddedValue || '')
+  const [operation, setOperation]             = useState(null)
+  const [pendingLossReason, setPendingLossReason] = useState(lead.lossReason || '')
   const reportRef = useRef()
+
+  useEffect(() => {
+    apiGetOperationByLead(lead.id)
+      .then(setOperation)
+      .catch(() => setOperation(null))
+  }, [lead.id])
 
   const initials   = (lead.name || '?').split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase() || '?'
   const createdAt  = lead.createdAt ? new Date(lead.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'
   const whatsappLink = `https://wa.me/55${(lead.phone || '').replace(/\D/g, '')}`
   const emb  = parseFloat(lead.embeddedValue) || 0
   const leme = emb * ((lead.feePercent ?? 50) / 100)
+
+  const handleStatusChange = (s) => {
+    onStatusChange(s)
+  }
+
+  const handleMarkLost = () => {
+    if (!pendingLossReason) { alert('Selecione o motivo da perda.'); return }
+    onStatusChange('__lost__', pendingLossReason)
+  }
+
+  const handleRevive = () => {
+    onStatusChange('__revive__')
+  }
 
   const handlePrintReport = () => {
     const el = reportRef.current
@@ -140,6 +133,24 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
+      {/* ── Banner de operação vinculada ──────────────────────────────────── */}
+      {operation && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 'var(--radius-lg)', background: 'var(--color-green-bg)', border: '1px solid var(--color-green-dark)', flexWrap: 'wrap' }}>
+          <i className="ti ti-settings-2" style={{ fontSize: 16, color: 'var(--color-green-dark)', flexShrink: 0 }} aria-hidden="true" />
+          <span style={{ fontSize: 13, color: 'var(--color-green-dark)', fontWeight: 500, flex: 1 }}>
+            Este lead tem uma operação ativa — <strong>{operation.status}</strong>
+          </span>
+          {onOpenOperation && (
+            <button
+              onClick={() => onOpenOperation(operation)}
+              style={{ fontSize: 12, padding: '5px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-green-dark)', background: '#fff', color: 'var(--color-green-dark)', fontWeight: 500, cursor: 'pointer', flexShrink: 0 }}
+            >
+              Ver Operação
+            </button>
+          )}
+        </div>
+      )}
+
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)', padding: '20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -147,7 +158,12 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
           <div style={{ flex: 1, minWidth: 200 }}>
             <h3 style={{ margin: 0, fontSize: 17, fontWeight: 600 }}>{lead.name}</h3>
             <div style={{ marginTop: 5, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <StatusBadge status={lead.status} />
+              <StatusBadge status={lead.isLost ? 'Perdido' : lead.status} />
+              {lead.isLost && lead.lossReason && (
+                <span style={{ fontSize: 12, color: 'var(--color-red-dark)', background: 'var(--color-red-bg)', padding: '2px 8px', borderRadius: 99 }}>
+                  {lead.lossReason}
+                </span>
+              )}
               {lead.responsible && <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', background: 'var(--color-bg)', padding: '2px 8px', borderRadius: 99, border: '1px solid var(--color-border)' }}>{lead.responsible}</span>}
             </div>
           </div>
@@ -174,8 +190,18 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
         <InfoRow icon="ti-building-bank"    label="Banco"         value={lead.bank} />
         <InfoRow icon="ti-file-description" label="Tipo"          value={lead.contractType} />
         <InfoRow icon="ti-hash"             label="Nº contrato"   value={lead.contractNumber} />
-        <InfoRow icon="ti-target"           label="Origem"        value={lead.source} />
-        <InfoRow icon="ti-calendar"         label="Cadastrado em" value={createdAt} />
+        <InfoRow icon="ti-target"           label="Origem"             value={lead.source} />
+        <InfoRow icon="ti-calendar"         label="Cadastrado em"      value={createdAt} />
+        {(lead.adCampaign || lead.adSet || lead.adName) && (
+          <div style={{ padding: '10px 0 4px', borderBottom: '1px solid var(--color-border)' }}>
+            <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: 'var(--color-text-hint)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              <i className="ti ti-ad-2" style={{ fontSize: 12, marginRight: 5 }} />Meta Ads
+            </p>
+            {lead.adCampaign && <InfoRow icon="ti-speakerphone" label="Campanha"              value={lead.adCampaign} />}
+            {lead.adSet      && <InfoRow icon="ti-layout-grid"  label="Conjunto de anúncios"  value={lead.adSet} />}
+            {lead.adName     && <InfoRow icon="ti-photo"        label="Anúncio"               value={lead.adName} />}
+          </div>
+        )}
         {lead.nextContact && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 20px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-amber-bg)', margin: '4px -20px -1px' }}>
             <i className="ti ti-bell-ringing" style={{ fontSize: 16, color: 'var(--color-amber-dark)', flexShrink: 0 }} aria-hidden="true" />
@@ -222,8 +248,6 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
             </button>
           </div>
         </div>
-
-        {/* Campo editável do valor para o relatório */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, background: 'var(--color-bg)', padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
           <i className="ti ti-currency-dollar" style={{ fontSize: 16, color: 'var(--color-text-secondary)', flexShrink: 0 }} aria-hidden="true" />
           <div style={{ flex: 1 }}>
@@ -231,10 +255,7 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
               Valor no relatório (editável aqui — não salva no lead)
             </p>
             <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={reportValue}
+              type="number" min="0" step="0.01" value={reportValue}
               onChange={e => setReportValue(e.target.value)}
               placeholder="Ex: 1988.00"
               style={{ border: 'none', background: 'transparent', fontSize: 15, fontWeight: 600, padding: 0, width: '100%', outline: 'none' }}
@@ -246,14 +267,11 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
             </span>
           )}
         </div>
-
-        {/* Preview do card */}
         {showReport && (
           <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 8 }}>
             <ReportCard lead={lead} settings={settings} reportRef={reportRef} reportValue={reportValue} />
           </div>
         )}
-        {/* Sempre presente no DOM para o print funcionar mesmo oculto */}
         {!showReport && (
           <div style={{ display: 'none' }}>
             <ReportCard lead={lead} settings={settings} reportRef={reportRef} reportValue={reportValue} />
@@ -285,21 +303,74 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
         )}
       </div>
 
-      {/* ── Status rápido ─────────────────────────────────────────────────── */}
-      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)', padding: '16px 20px' }}>
-        <p style={{ margin: '0 0 12px', fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Avançar etapa</p>
+      {/* ── Status rápido (funil comercial) ──────────────────────────────── */}
+      <div style={{ background: 'var(--color-surface)', border: `1px solid ${lead.isLost ? 'var(--color-red-border, #f5c6cb)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-xl)', padding: '16px 20px' }}>
+
+        {/* Banner de lead perdido */}
+        {lead.isLost && (() => {
+          // Perda veio do operacional: lead está em '5. Contrato Assinado' com isLost=1
+          // Nesse caso só mostra info — reativação é exclusiva do funil operacional
+          const lostFromOperational = lead.status === '5. Contrato Assinado'
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, padding: '10px 14px', background: 'var(--color-red-bg)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-red-border, #f5c6cb)' }}>
+              <i className="ti ti-circle-x" style={{ fontSize: 16, color: 'var(--color-red-dark)', flexShrink: 0 }} aria-hidden="true" />
+              <span style={{ fontSize: 13, color: 'var(--color-red-dark)', fontWeight: 500, flex: 1 }}>
+                Lead perdido — <strong>{lead.lossReason || 'sem motivo'}</strong>
+                {lead.lastActiveStatus ? ` · estava em ${lead.lastActiveStatus}` : ''}
+              </span>
+              {lostFromOperational ? (
+                <span style={{ fontSize: 11, color: 'var(--color-red-dark)', opacity: 0.7, flexShrink: 0, fontStyle: 'italic' }}>
+                  Reativar pelo operacional
+                </span>
+              ) : (
+                <button
+                  onClick={handleRevive}
+                  style={{ fontSize: 12, padding: '4px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-red-dark)', background: '#fff', color: 'var(--color-red-dark)', fontWeight: 500, cursor: 'pointer', flexShrink: 0 }}
+                >
+                  Reativar
+                </button>
+              )}
+            </div>
+          )
+        })()}
+
+        <p style={{ margin: '0 0 12px', fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Avançar etapa — Funil Comercial</p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-          {STATUSES.map(s => {
-            const meta   = STATUS_META[s]
-            const active = lead.status === s
+          {COMMERCIAL_STATUSES.map(s => {
+            const meta   = COMMERCIAL_STATUS_META[s]
+            const active = lead.status === s && !lead.isLost
             return (
-              <button key={s} onClick={() => onStatusChange(s)} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', borderRadius: 'var(--radius-full)', border: active ? `1.5px solid ${meta.color}` : '1px solid var(--color-border)', background: active ? meta.bg : 'transparent', color: active ? meta.color : 'var(--color-text-secondary)', fontWeight: active ? 500 : 400, cursor: 'pointer' }}>
+              <button key={s} onClick={() => handleStatusChange(s)} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', borderRadius: 'var(--radius-full)', border: active ? `1.5px solid ${meta.color}` : '1px solid var(--color-border)', background: active ? meta.bg : 'transparent', color: active ? meta.color : 'var(--color-text-secondary)', fontWeight: active ? 500 : 400, cursor: 'pointer', opacity: lead.isLost ? 0.5 : 1 }}>
                 <i className={`ti ${meta.icon}`} style={{ fontSize: 12 }} aria-hidden="true" />
                 {s}
               </button>
             )
           })}
         </div>
+
+        {/* Seção "Marcar como perdido" — oculta em status 5 e quando já perdido */}
+        {lead.status !== '5. Contrato Assinado' && !lead.isLost && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
+            <p style={{ margin: '0 0 8px', fontSize: 11, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Marcar como perdido</p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <select
+                value={pendingLossReason}
+                onChange={e => setPendingLossReason(e.target.value)}
+                style={{ fontSize: 12, padding: '5px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', minWidth: 160 }}
+              >
+                <option value="">Selecionar motivo…</option>
+                {LOSS_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              <button
+                onClick={handleMarkLost}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 14px', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
+              >
+                <i className="ti ti-circle-x" style={{ fontSize: 12 }} aria-hidden="true" />
+                Marcar Perdido
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Observações ──────────────────────────────────────────────────── */}

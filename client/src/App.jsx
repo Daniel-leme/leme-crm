@@ -3,18 +3,20 @@ import { emptyLead } from './constants'
 import {
   apiListLeads, apiCreateLead, apiUpdateLead, apiDeleteLead,
   apiGetSettings, apiUpdateSettings, apiHealth,
+  apiListOperations, apiUpdateOperation,
 } from './utils/api'
-import LeadList   from './components/LeadList'
-import LeadForm   from './components/LeadForm'
-import LeadDetail from './components/LeadDetail'
-import Settings   from './components/Settings'
-import LemeLogo   from './components/LemeLogo'
+import LeadList       from './components/LeadList'
+import LeadForm       from './components/LeadForm'
+import LeadDetail     from './components/LeadDetail'
+import Settings       from './components/Settings'
+import LemeLogo       from './components/LemeLogo'
+import OperationList  from './components/OperationList'
+import OperationDetail from './components/OperationDetail'
 import { requestNotificationPermission, startNotificationService } from './utils/notifications'
 
 const SIDEBAR_W   = 230
 const CONTENT_MAX = 920
 
-// Hook simples para detectar mobile (< 768px)
 function useIsMobile() {
   const [mobile, setMobile] = useState(window.innerWidth < 768)
   useEffect(() => {
@@ -26,24 +28,27 @@ function useIsMobile() {
 }
 
 export default function App() {
-  const [leads,      setLeads]      = useState([])
-  const [settings,   setSettings]   = useState(null)
-  const [view,       setView]       = useState('list')
-  const [selectedId, setSelectedId] = useState(null)
-  const [form,       setForm]       = useState(emptyLead())
-  const [saving,     setSaving]     = useState(false)
-  const [connState,  setConnState]  = useState('checking')
-  const [notifPerm,  setNotifPerm]  = useState(null)
-  const [menuOpen,   setMenuOpen]   = useState(false)
+  const [leads,        setLeads]        = useState([])
+  const [operations,   setOperations]   = useState([])
+  const [settings,     setSettings]     = useState(null)
+  const [view,         setView]         = useState('list')
+  const [selectedId,   setSelectedId]   = useState(null)
+  const [selectedOpId, setSelectedOpId] = useState(null)
+  const [form,         setForm]         = useState(emptyLead())
+  const [saving,       setSaving]       = useState(false)
+  const [connState,    setConnState]    = useState('checking')
+  const [notifPerm,    setNotifPerm]    = useState(null)
+  const [menuOpen,     setMenuOpen]     = useState(false)
   const leadsRef = useRef([])
   const isMobile = useIsMobile()
 
   // ─── Carga inicial ─────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
     try {
-      const [ls, st] = await Promise.all([apiListLeads(), apiGetSettings()])
+      const [ls, ops, st] = await Promise.all([apiListLeads(), apiListOperations(), apiGetSettings()])
       setLeads(ls)
       leadsRef.current = ls
+      setOperations(ops)
       setSettings(st)
       setConnState('online')
     } catch (e) {
@@ -64,17 +69,17 @@ export default function App() {
     return stop
   }, [])
 
-  // Fechar menu ao mudar de view no mobile
   useEffect(() => { setMenuOpen(false) }, [view])
 
   const flashSaving = () => { setSaving(true); setTimeout(() => setSaving(false), 900) }
 
-  // ── Actions ──────────────────────────────────────────────────────────────
+  // ── Leads ──────────────────────────────────────────────────────────────────
   const openNew      = ()     => { setForm(emptyLead()); setView('form') }
   const openEdit     = (lead) => { setForm({ ...lead }); setView('form') }
   const openDetail   = (lead) => { setSelectedId(lead.id); setView('detail') }
   const openSettings = ()     => { setView('settings') }
-  const goList       = ()     => { setView('list'); setSelectedId(null); setForm(emptyLead()) }
+  const goList       = ()     => { setView('list'); setSelectedId(null); setSelectedOpId(null); setForm(emptyLead()) }
+  const goOperations = ()     => { setView('operations'); setSelectedId(null); setSelectedOpId(null) }
 
   const submitForm = async () => {
     if (!form.name.trim()) { alert('O nome completo é obrigatório.'); return }
@@ -93,9 +98,20 @@ export default function App() {
     catch (e) { alert(`Erro ao excluir: ${e.message}`) }
   }
 
-  const changeStatus = async (status) => {
-    try { await apiUpdateLead(selectedId, { ...selected, status }); flashSaving(); await refresh() }
-    catch (e) { alert(`Erro: ${e.message}`) }
+  const changeStatus = async (action, lossReason) => {
+    let payload
+    if (action === '__lost__') {
+      payload = { isLost: true, lossReason: lossReason || '' }
+    } else if (action === '__revive__') {
+      payload = { isLost: false }
+    } else {
+      payload = { status: action, isLost: false }
+    }
+    try {
+      await apiUpdateLead(selectedId, payload)
+      flashSaving()
+      await refresh()
+    } catch (e) { alert(`Erro: ${e.message}`) }
   }
 
   const saveSettings = async (newSettings) => {
@@ -103,18 +119,61 @@ export default function App() {
     catch (e) { alert(`Erro ao salvar configurações: ${e.message}`) }
   }
 
-  const selected  = leads.find(l => l.id === selectedId) || null
-  const pageTitle = { list: 'Leads', form: leads.some(l => l.id === form.id) ? 'Editar Lead' : 'Novo Lead', detail: selected?.name || 'Lead', settings: 'Configurações' }[view]
-  const showBack  = view === 'form' || view === 'detail' || view === 'settings'
+  // ── Operations ─────────────────────────────────────────────────────────────
+  const openOperation = (op) => { setSelectedOpId(op.id); setView('operation-detail') }
+
+  const changeOperationStatus = async (action, lossReason) => {
+    let payload
+    if (action === '__lost__') {
+      payload = { isLost: true, lossReason: lossReason || '' }
+    } else if (action === '__revive__') {
+      payload = { isLost: false }
+    } else {
+      payload = { status: action, isLost: false }
+    }
+    try {
+      await apiUpdateOperation(selectedOpId, payload)
+      flashSaving()
+      await refresh()
+    } catch (e) { alert(`Erro: ${e.message}`) }
+  }
+
+  const handleOperationSaved = async () => {
+    flashSaving()
+    await refresh()
+  }
+
+  // ── Derived ────────────────────────────────────────────────────────────────
+  const selected   = leads.find(l => l.id === selectedId) || null
+  const selectedOp = operations.find(o => o.id === selectedOpId) || null
+
+  const isCommercialView = view === 'list' || view === 'detail' || view === 'form'
+  const isOperationsView = view === 'operations' || view === 'operation-detail'
+
+  const pageTitleMap = {
+    list:             'Funil Comercial',
+    form:             leads.some(l => l.id === form.id) ? 'Editar Lead' : 'Novo Lead',
+    detail:           selected?.name || 'Lead',
+    settings:         'Configurações',
+    operations:       'Funil Operacional',
+    'operation-detail': selectedOp?.lead_name || 'Operação',
+  }
+  const pageTitle = pageTitleMap[view] || ''
+  const showBack  = view === 'form' || view === 'detail' || view === 'settings' || view === 'operation-detail'
+
+  const handleBack = () => {
+    if (view === 'operation-detail') { setView('operations'); setSelectedOpId(null) }
+    else goList()
+  }
 
   // ── Nav items ─────────────────────────────────────────────────────────────
   const navItems = [
-    { icon: 'ti-layout-dashboard', label: 'Leads',         action: goList,       active: view === 'list' || view === 'detail' },
-    { icon: 'ti-plus',             label: 'Novo Lead',     action: openNew,      active: view === 'form' },
-    { icon: 'ti-settings',         label: 'Configurações', action: openSettings, active: view === 'settings' },
+    { icon: 'ti-briefcase',  label: 'Funil Comercial',    action: goList,       active: isCommercialView },
+    { icon: 'ti-settings-2', label: 'Funil Operacional',  action: goOperations, active: isOperationsView },
+    { icon: 'ti-plus',       label: 'Novo Lead',          action: openNew,      active: false },
+    { icon: 'ti-settings',   label: 'Configurações',      action: openSettings, active: view === 'settings' },
   ]
 
-  // ── Sidebar conteúdo (reutilizado desktop e drawer mobile) ────────────────
   const SidebarContent = () => (
     <>
       <div style={{ padding: '20px 20px 0' }}>
@@ -145,6 +204,11 @@ export default function App() {
           }}>
             <i className={`ti ${item.icon}`} style={{ fontSize: 18 }} aria-hidden="true" />
             {item.label}
+            {item.label === 'Funil Operacional' && operations.length > 0 && (
+              <span style={{ marginLeft: 'auto', fontSize: 11, background: '#1565C0', color: '#fff', borderRadius: 99, padding: '1px 7px', fontWeight: 600 }}>
+                {operations.filter(o => o.status !== '12. Concluído' && !o.isLost).length}
+              </span>
+            )}
           </button>
         ))}
       </nav>
@@ -157,11 +221,19 @@ export default function App() {
           </span>
         </div>
         <p style={{ margin: 0, fontSize: 11, color: 'var(--color-text-hint)' }}>
-          {leads.length} lead{leads.length !== 1 ? 's' : ''} cadastrado{leads.length !== 1 ? 's' : ''}
+          {leads.length} lead{leads.length !== 1 ? 's' : ''} · {operations.length} operaç{operations.length !== 1 ? 'ões' : 'ão'}
         </p>
       </div>
     </>
   )
+
+  // Nav items simplificados para bottom nav mobile (sem "Novo Lead" no nav — está no header)
+  const mobileNavItems = [
+    { icon: 'ti-briefcase',  label: 'Comercial',  action: goList,       active: isCommercialView },
+    { icon: 'ti-settings-2', label: 'Operacional', action: goOperations, active: isOperationsView },
+    { icon: 'ti-plus',       label: 'Novo Lead',   action: openNew,      active: view === 'form' },
+    { icon: 'ti-settings',   label: 'Config',      action: openSettings, active: view === 'settings' },
+  ]
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -173,12 +245,10 @@ export default function App() {
         </aside>
       )}
 
-      {/* ── Drawer mobile (overlay) ─────────────────────────────────────────── */}
+      {/* ── Drawer mobile ───────────────────────────────────────────────────── */}
       {isMobile && menuOpen && (
         <>
-          {/* Fundo escuro */}
           <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100 }} />
-          {/* Drawer */}
           <aside style={{ position: 'fixed', top: 0, left: 0, bottom: 0, width: 260, background: '#fff', zIndex: 101, display: 'flex', flexDirection: 'column', padding: '0 0 16px', boxShadow: '4px 0 20px rgba(0,0,0,0.15)' }}>
             <SidebarContent />
           </aside>
@@ -196,14 +266,13 @@ export default function App() {
           background: '#fff', borderBottom: '1px solid var(--color-border)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            {/* Hamburguer no mobile */}
             {isMobile && !showBack && (
               <button onClick={() => setMenuOpen(true)} style={{ background: 'none', border: 'none', fontSize: 22, color: 'var(--color-text-secondary)', cursor: 'pointer', padding: '4px 6px', flexShrink: 0 }}>
                 <i className="ti ti-menu-2" aria-hidden="true" />
               </button>
             )}
             {showBack && (
-              <button onClick={goList} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: 'var(--color-text-secondary)', fontSize: 13, padding: '4px 6px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', flexShrink: 0 }}>
+              <button onClick={handleBack} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: 'var(--color-text-secondary)', fontSize: 13, padding: '4px 6px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', flexShrink: 0 }}>
                 <i className="ti ti-arrow-left" style={{ fontSize: 16 }} aria-hidden="true" />
                 {!isMobile && 'Voltar'}
               </button>
@@ -240,18 +309,40 @@ export default function App() {
               </div>
             )}
 
-            {view === 'list' && <LeadList leads={leads} onSelect={openDetail} onNew={openNew} />}
+            {view === 'list' && (
+              <LeadList leads={leads} onSelect={openDetail} onNew={openNew} />
+            )}
 
             {view === 'form' && (
-              <LeadForm form={form} onChange={setForm} onSubmit={submitForm} onCancel={goList} isEditing={leads.some(l => l.id === form.id)} settings={settings} />
+              <LeadForm form={form} onChange={setForm} onSubmit={submitForm} onCancel={handleBack} isEditing={leads.some(l => l.id === form.id)} settings={settings} />
             )}
 
             {view === 'detail' && selected && settings && (
-              <LeadDetail lead={selected} settings={settings} onEdit={() => openEdit(selected)} onDelete={deleteLead} onStatusChange={changeStatus} />
+              <LeadDetail
+                lead={selected}
+                settings={settings}
+                onEdit={() => openEdit(selected)}
+                onDelete={deleteLead}
+                onStatusChange={changeStatus}
+                onOpenOperation={openOperation}
+              />
             )}
 
             {view === 'settings' && settings && (
               <Settings settings={settings} onSave={saveSettings} />
+            )}
+
+            {view === 'operations' && (
+              <OperationList operations={operations} onSelect={openOperation} />
+            )}
+
+            {view === 'operation-detail' && selectedOp && (
+              <OperationDetail
+                operation={selectedOp}
+                onStatusChange={changeOperationStatus}
+                onOpenLead={() => { setSelectedId(selectedOp.lead_id); setView('detail') }}
+                onSaved={handleOperationSaved}
+              />
             )}
           </div>
         </div>
@@ -259,7 +350,7 @@ export default function App() {
         {/* ── Bottom nav mobile ──────────────────────────────────────────────── */}
         {isMobile && (
           <nav style={{ display: 'flex', borderTop: '1px solid var(--color-border)', background: '#fff', flexShrink: 0 }}>
-            {navItems.map(item => (
+            {mobileNavItems.map(item => (
               <button key={item.label} onClick={item.action} style={{
                 flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 gap: 3, padding: '10px 0', border: 'none', background: 'transparent', cursor: 'pointer',
