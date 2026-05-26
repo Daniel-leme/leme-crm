@@ -174,7 +174,8 @@ async function initDb() {
       'Nubank','Sicredi','Sicoob','BMG','BV','Pan Americano','Safra',
       'Inter','C6 Bank','C6 Consignado','Daycoval','Facta','Agibank','Mercantil','Outro'
     ]),
-    responsibles: JSON.stringify(['Daniel', 'Riquelme']),
+    responsibles:  JSON.stringify(['Daniel', 'Riquelme']),
+    lossReasons:   JSON.stringify(['Desqualificado', 'Sem Valores', 'Sem Contato', 'Desistiu']),
   }
   for (const [k, v] of Object.entries(defaultSettings)) {
     await run(db, 'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', [k, v])

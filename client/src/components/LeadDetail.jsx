@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { COMMERCIAL_STATUSES, COMMERCIAL_LOSS_STATUSES, COMMERCIAL_STATUS_META, LOSS_REASONS, fmtDate, fmtCurrency } from '../constants'
+import { COMMERCIAL_STATUSES, COMMERCIAL_LOSS_STATUSES, COMMERCIAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS, fmtDate, fmtCurrency } from '../constants'
 import StatusBadge from './StatusBadge'
 import { generateContractPDF } from '../utils/contractPdf'
 import { apiGetOperationByLead } from '../utils/api'
@@ -69,6 +69,10 @@ function ReportCard({ lead, settings, reportRef, reportValue }) {
 
 // ─── LeadDetail principal ─────────────────────────────────────────────────────
 export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusChange, onOpenOperation }) {
+  const lossReasons = settings?.lossReasons
+    ? JSON.parse(settings.lossReasons)
+    : DEFAULT_LOSS_REASONS
+
   const [previewContract, setPreviewContract] = useState(null)
   const [showReport, setShowReport]           = useState(false)
   const [reportValue, setReportValue]         = useState(lead.embeddedValue || '')
@@ -359,7 +363,7 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
                 style={{ fontSize: 12, padding: '5px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', minWidth: 160 }}
               >
                 <option value="">Selecionar motivo…</option>
-                {LOSS_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                {lossReasons.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
               <button
                 onClick={handleMarkLost}

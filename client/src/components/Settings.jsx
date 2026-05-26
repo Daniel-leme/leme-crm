@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { DEFAULT_BANKS } from '../constants'
+import { DEFAULT_BANKS, LOSS_REASONS } from '../constants'
 
 function Field({ label, hint, children, full }) {
   return (
@@ -55,14 +55,16 @@ function TagEditor({ items, onChange, placeholder }) {
 export default function Settings({ settings, onSave }) {
   const [form, setForm] = useState({
     ...settings,
-    banks:        JSON.parse(settings.banks || JSON.stringify(DEFAULT_BANKS)),
+    banks:        JSON.parse(settings.banks        || JSON.stringify(DEFAULT_BANKS)),
     responsibles: JSON.parse(settings.responsibles || '["Daniel","Riquelme"]'),
+    lossReasons:  JSON.parse(settings.lossReasons  || JSON.stringify(LOSS_REASONS)),
   })
   const set = (k, v) => setForm({ ...form, [k]: v })
   const dirty = JSON.stringify(form) !== JSON.stringify({
     ...settings,
-    banks:        JSON.parse(settings.banks || JSON.stringify(DEFAULT_BANKS)),
+    banks:        JSON.parse(settings.banks        || JSON.stringify(DEFAULT_BANKS)),
     responsibles: JSON.parse(settings.responsibles || '["Daniel","Riquelme"]'),
+    lossReasons:  JSON.parse(settings.lossReasons  || JSON.stringify(LOSS_REASONS)),
   })
 
   const handleSave = () => {
@@ -70,6 +72,7 @@ export default function Settings({ settings, onSave }) {
       ...form,
       banks:        JSON.stringify(form.banks),
       responsibles: JSON.stringify(form.responsibles),
+      lossReasons:  JSON.stringify(form.lossReasons),
     })
   }
 
@@ -125,6 +128,14 @@ export default function Settings({ settings, onSave }) {
         placeholder="Nome do banco…"
       />
 
+      {/* ── Motivos de perda ─────────────────────────────────────────────── */}
+      <SectionTitle icon="ti-circle-x" label="Motivos de perda" />
+      <TagEditor
+        items={form.lossReasons}
+        onChange={v => set('lossReasons', v)}
+        placeholder="Novo motivo de perda…"
+      />
+
       {/* ── Acesso compartilhado ─────────────────────────────────────────── */}
       <SectionTitle icon="ti-network" label="Acesso compartilhado (Radmin / Hamachi)" />
       <div style={{ padding: '14px 18px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)' }}>
@@ -138,7 +149,7 @@ export default function Settings({ settings, onSave }) {
 
       {/* Botões */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 6 }}>
-        <button onClick={() => setForm({ ...settings, banks: JSON.parse(settings.banks || '[]'), responsibles: JSON.parse(settings.responsibles || '[]') })} disabled={!dirty} style={{ padding: '9px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-secondary)', fontSize: 13, opacity: dirty ? 1 : 0.4, cursor: dirty ? 'pointer' : 'default' }}>
+        <button onClick={() => setForm({ ...settings, banks: JSON.parse(settings.banks || '[]'), responsibles: JSON.parse(settings.responsibles || '[]'), lossReasons: JSON.parse(settings.lossReasons || JSON.stringify(LOSS_REASONS)) })} disabled={!dirty} style={{ padding: '9px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-secondary)', fontSize: 13, opacity: dirty ? 1 : 0.4, cursor: dirty ? 'pointer' : 'default' }}>
           Desfazer
         </button>
         <button onClick={handleSave} disabled={!dirty} style={{ padding: '9px 22px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-blue-mid)', color: '#fff', fontSize: 13, fontWeight: 500, opacity: dirty ? 1 : 0.4, cursor: dirty ? 'pointer' : 'default' }}>

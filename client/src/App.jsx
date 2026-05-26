@@ -336,9 +336,10 @@ export default function App() {
               <OperationList operations={operations} onSelect={openOperation} />
             )}
 
-            {view === 'operation-detail' && selectedOp && (
+            {view === 'operation-detail' && selectedOp && settings && (
               <OperationDetail
                 operation={selectedOp}
+                settings={settings}
                 onStatusChange={changeOperationStatus}
                 onOpenLead={() => { setSelectedId(selectedOp.lead_id); setView('detail') }}
                 onSaved={handleOperationSaved}

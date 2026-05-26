@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { OPERATIONAL_STATUSES, OPERATIONAL_STATUS_META, LOSS_REASONS, fmtCurrency } from '../constants'
+import { OPERATIONAL_STATUSES, OPERATIONAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS, fmtCurrency } from '../constants'
 import StatusBadge from './StatusBadge'
 import { apiUpdateOperation } from '../utils/api'
 
@@ -13,7 +13,11 @@ function Field({ label, hint, children }) {
   )
 }
 
-export default function OperationDetail({ operation, onStatusChange, onOpenLead, onSaved }) {
+export default function OperationDetail({ operation, settings, onStatusChange, onOpenLead, onSaved }) {
+  const lossReasons = settings?.lossReasons
+    ? JSON.parse(settings.lossReasons)
+    : DEFAULT_LOSS_REASONS
+
   const [form, setForm] = useState({
     repaymentValue:    operation.repaymentValue    || '',
     distributionNotes: operation.distributionNotes || '',
@@ -190,7 +194,7 @@ export default function OperationDetail({ operation, onStatusChange, onOpenLead,
                 style={{ fontSize: 12, padding: '5px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', minWidth: 160 }}
               >
                 <option value="">Selecionar motivo…</option>
-                {LOSS_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                {lossReasons.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
               <button
                 onClick={handleMarkLost}
