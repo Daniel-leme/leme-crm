@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { emptyLead } from './constants'
 import {
   apiListLeads, apiCreateLead, apiUpdateLead, apiDeleteLead,
@@ -12,7 +12,6 @@ import Settings       from './components/Settings'
 import LemeLogo       from './components/LemeLogo'
 import OperationList  from './components/OperationList'
 import OperationDetail from './components/OperationDetail'
-import { requestNotificationPermission, startNotificationService } from './utils/notifications'
 
 const SIDEBAR_W   = 230
 const CONTENT_MAX = 920
@@ -37,9 +36,7 @@ export default function App() {
   const [form,         setForm]         = useState(emptyLead())
   const [saving,       setSaving]       = useState(false)
   const [connState,    setConnState]    = useState('checking')
-  const [notifPerm,    setNotifPerm]    = useState(null)
   const [menuOpen,     setMenuOpen]     = useState(false)
-  const leadsRef = useRef([])
   const isMobile = useIsMobile()
 
   // ─── Carga inicial ─────────────────────────────────────────────────────────
@@ -47,7 +44,6 @@ export default function App() {
     try {
       const [ls, ops, st] = await Promise.all([apiListLeads(), apiListOperations(), apiGetSettings()])
       setLeads(ls)
-      leadsRef.current = ls
       setOperations(ops)
       setSettings(st)
       setConnState('online')
@@ -62,13 +58,6 @@ export default function App() {
     refresh()
   }, [refresh])
 
-  useEffect(() => {
-    requestNotificationPermission().then(setNotifPerm)
-    const openLead = (id) => { setSelectedId(id); setView('detail') }
-    const stop = startNotificationService(() => leadsRef.current, openLead)
-    return stop
-  }, [])
-
   useEffect(() => { setMenuOpen(false) }, [view])
 
   const flashSaving = () => { setSaving(true); setTimeout(() => setSaving(false), 900) }
@@ -82,10 +71,12 @@ export default function App() {
   const goOperations = ()     => { setView('operations'); setSelectedId(null); setSelectedOpId(null) }
 
   const submitForm = async () => {
-    if (!form.name.trim()) { alert('O nome completo é obrigatório.'); return }
+    if (!form.phone.trim()) { alert('O telefone/WhatsApp é obrigatório.'); return }
+    if (!form.source.trim()) { alert('A origem é obrigatória.'); return }
+    const finalForm = { ...form, name: form.name.trim() || 'Sem nome', responsible: form.responsible || 'Riquelme' }
     const exists = leads.some(l => l.id === form.id)
     try {
-      const saved = exists ? await apiUpdateLead(form.id, form) : await apiCreateLead(form)
+      const saved = exists ? await apiUpdateLead(finalForm.id, finalForm) : await apiCreateLead(finalForm)
       flashSaving()
       await refresh()
       if (exists) { setSelectedId(saved.id); setView('detail') } else goList()
@@ -163,6 +154,7 @@ export default function App() {
 
   const handleBack = () => {
     if (view === 'operation-detail') { setView('operations'); setSelectedOpId(null) }
+    else if (view === 'form' && selectedId) { setForm(emptyLead()); setView('detail') }
     else goList()
   }
 
@@ -292,15 +284,8 @@ export default function App() {
         </header>
 
         {/* Content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '16px' : '28px' }}>
+        <div style={{ flex: 1, overflowY: 'scroll', padding: isMobile ? '16px' : '28px' }}>
           <div style={{ maxWidth: CONTENT_MAX, margin: '0 auto' }}>
-
-            {notifPerm === 'denied' && (
-              <div style={{ background: 'var(--color-amber-bg)', color: 'var(--color-amber-dark)', padding: '10px 16px', borderRadius: 'var(--radius-md)', marginBottom: 12, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <i className="ti ti-bell-off" style={{ fontSize: 15 }} />
-                Notificações bloqueadas. Permita nas configurações do navegador.
-              </div>
-            )}
 
             {connState === 'offline' && (
               <div style={{ background: 'var(--color-red-bg)', color: 'var(--color-red-dark)', padding: '12px 16px', borderRadius: 'var(--radius-md)', marginBottom: 18, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -314,7 +299,7 @@ export default function App() {
             )}
 
             {view === 'form' && (
-              <LeadForm form={form} onChange={setForm} onSubmit={submitForm} onCancel={handleBack} isEditing={leads.some(l => l.id === form.id)} settings={settings} />
+              <LeadForm form={form} onChange={setForm} onSubmit={submitForm} onCancel={handleBack} isEditing={leads.some(l => l.id === form.id)} settings={settings} sidebarWidth={isMobile ? 0 : SIDEBAR_W} />
             )}
 
             {view === 'detail' && selected && settings && (
@@ -325,6 +310,7 @@ export default function App() {
                 onDelete={deleteLead}
                 onStatusChange={changeStatus}
                 onOpenOperation={openOperation}
+                onRefresh={refresh}
               />
             )}
 

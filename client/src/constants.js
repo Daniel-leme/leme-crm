@@ -11,6 +11,30 @@ export const CONTRACT_TYPES = [
   'Empréstimo',
 ]
 
+// ─── Contratos bancários do cliente ──────────────────────────────────────────
+
+export const BANK_CONTRACT_TYPES = [
+  'Financiamento de Veículo',
+  'Empréstimo Pessoal',
+  'Consignado',
+  'Cartão de Crédito',
+  'Outro',
+]
+
+export const BANK_CONTRACT_STATUSES = [
+  'Aguardando envio',
+  'Assistência segunda via',
+  'Revisar contrato',
+  'Contrato revisado',
+]
+
+export const BANK_CONTRACT_STATUS_META = {
+  'Aguardando envio':       { color: '#B45309', bg: '#FEF3C7', icon: 'ti-clock' },
+  'Assistência segunda via':{ color: '#1D4ED8', bg: '#DBEAFE', icon: 'ti-headset' },
+  'Revisar contrato':       { color: '#7C3AED', bg: '#EDE9FE', icon: 'ti-file-search' },
+  'Contrato revisado':      { color: '#15803D', bg: '#DCFCE7', icon: 'ti-circle-check' },
+}
+
 export const LEAD_SOURCES = [
   'Anúncio',
   'Orgânico',
@@ -91,7 +115,9 @@ export const genId = () =>
 export const fmtPhone = (v) => {
   const d = (v || '').replace(/\D/g, '').slice(0, 11)
   if (d.length <= 2) return d
-  if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`
+  // 8 dígitos: fixo → (DD) XXXX-XXXX; 9 dígitos: celular → (DD) 9XXXX-XXXX
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
 }
 
@@ -126,7 +152,7 @@ export const emptyLead = () => ({
   email: '',
   phone: '',
   address: '',
-  responsible: '',
+  responsible: 'Riquelme',
   bank: '',
   contractType: '',
   contractNumber: '',

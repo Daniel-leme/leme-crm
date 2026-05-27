@@ -160,6 +160,25 @@ async function initDb() {
   // Para corrigi-los, precisaríamos de outra fonte de dado — deixamos em '6. Documentação' como estado neutro
   // pois não há como saber qual era o status operacional sem uma coluna de histórico.
 
+  // Tabela de contratos bancários do cliente
+  await run(db, `
+    CREATE TABLE IF NOT EXISTS contracts (
+      id             TEXT PRIMARY KEY,
+      lead_id        TEXT NOT NULL,
+      bank           TEXT DEFAULT '',
+      type           TEXT DEFAULT '',
+      status         TEXT DEFAULT 'Aguardando envio',
+      embeddedValue  REAL DEFAULT 0,
+      productsCount  INTEGER DEFAULT 0,
+      notes          TEXT DEFAULT '',
+      pdfFile        TEXT,
+      pdfName        TEXT DEFAULT '',
+      createdAt      TEXT NOT NULL,
+      updatedAt      TEXT NOT NULL,
+      FOREIGN KEY (lead_id) REFERENCES leads(id)
+    )
+  `)
+
   await run(db, `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`)
 
   const defaultSettings = {
@@ -439,6 +458,98 @@ app.put('/api/operations/:id', async (req, res) => {
     `, [req.params.id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
+
+// ─── Contracts (contratos bancários do cliente) ───────────────────────────────
+
+app.get('/api/leads/:lead_id/contracts', async (req, res) => {
+  try {
+    res.json(await all(db, `SELECT * FROM contracts WHERE lead_id = ? ORDER BY createdAt ASC`, [req.params.lead_id]))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.post('/api/leads/:lead_id/contracts', async (req, res) => {
+  try {
+    const c = req.body
+    const now = new Date().toISOString()
+    const id = genId()
+    await run(db, `
+      INSERT INTO contracts (id, lead_id, bank, type, status, embeddedValue, productsCount, notes, pdfFile, pdfName, createdAt, updatedAt)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    `, [
+      id, req.params.lead_id,
+      c.bank||'', c.type||'', c.status||'Aguardando envio',
+      parseFloat(c.embeddedValue)||0, parseInt(c.productsCount)||0,
+      c.notes||'', c.pdfFile||null, c.pdfName||'', now, now,
+    ])
+    // Recalcular embeddedValue do lead como soma dos contratos
+    await syncLeadEmbedded(req.params.lead_id, now)
+    // Primeiro contrato adicionado → avança lead para 1. Qualificação se ainda em Novo Lead
+    await autoAdvanceOnFirstContract(req.params.lead_id, now)
+    res.status(201).json(await get(db, `SELECT * FROM contracts WHERE id = ?`, [id]))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.put('/api/leads/:lead_id/contracts/:id', async (req, res) => {
+  try {
+    const c = req.body
+    const now = new Date().toISOString()
+    const ex = await get(db, `SELECT * FROM contracts WHERE id = ? AND lead_id = ?`, [req.params.id, req.params.lead_id])
+    if (!ex) return res.status(404).json({ error: 'Contrato não encontrado' })
+    await run(db, `
+      UPDATE contracts SET bank=?,type=?,status=?,embeddedValue=?,productsCount=?,notes=?,pdfFile=?,pdfName=?,updatedAt=?
+      WHERE id=?
+    `, [
+      c.bank??ex.bank, c.type??ex.type, c.status??ex.status,
+      parseFloat(c.embeddedValue??ex.embeddedValue)||0,
+      parseInt(c.productsCount??ex.productsCount)||0,
+      c.notes??ex.notes,
+      c.pdfFile!==undefined ? c.pdfFile : ex.pdfFile,
+      c.pdfName??ex.pdfName,
+      now, req.params.id,
+    ])
+    await syncLeadEmbedded(req.params.lead_id, now)
+    await autoAdvanceLeadStatus(req.params.lead_id, c.status, now)
+    res.json(await get(db, `SELECT * FROM contracts WHERE id = ?`, [req.params.id]))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.delete('/api/leads/:lead_id/contracts/:id', async (req, res) => {
+  try {
+    await run(db, `DELETE FROM contracts WHERE id = ? AND lead_id = ?`, [req.params.id, req.params.lead_id])
+    const now = new Date().toISOString()
+    await syncLeadEmbedded(req.params.lead_id, now)
+    res.json({ ok: true })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Primeiro contrato criado → avança lead para "1. Qualificação" se ainda em "0. Novo Lead"
+// Criar contrato enquanto lead está em Qualificação → avança para Qualificado
+async function autoAdvanceOnFirstContract(leadId, now) {
+  const lead = await get(db, `SELECT status FROM leads WHERE id=?`, [leadId])
+  if (!lead) return
+  if (lead.status === '1. Qualificação') {
+    await run(db, `UPDATE leads SET status='2. Qualificado', updatedAt=? WHERE id=?`, [now, leadId])
+  }
+}
+
+// Atualizar contrato enquanto lead está em Qualificado e status vai para "Revisar contrato" → avança para Revisão
+async function autoAdvanceLeadStatus(leadId, contractStatus, now) {
+  const lead = await get(db, `SELECT status FROM leads WHERE id=?`, [leadId])
+  if (!lead) return
+  const cur = lead.status
+  if (contractStatus === 'Revisar contrato') {
+    if (cur === '2. Qualificado') {
+      await run(db, `UPDATE leads SET status='3. Revisão', updatedAt=? WHERE id=?`, [now, leadId])
+    }
+  }
+}
+
+async function syncLeadEmbedded(leadId, now) {
+  const result = await get(db, `SELECT COALESCE(SUM(embeddedValue),0) as total FROM contracts WHERE lead_id=?`, [leadId])
+  const total = result?.total || 0
+  await run(db, `UPDATE leads SET embeddedValue=?, updatedAt=? WHERE id=?`, [total, now, leadId])
+  await run(db, `UPDATE operations SET embeddedValue=?, updatedAt=? WHERE lead_id=?`, [total, now, leadId])
+}
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 app.get('/api/settings', async (req, res) => {

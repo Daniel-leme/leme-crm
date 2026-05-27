@@ -54,9 +54,6 @@ function LeadRow({ lead, onSelect }) {
           </span>
         )}
       </div>
-      {lead.nextContact && !lost && (
-        <i className="ti ti-bell-ringing" style={{ fontSize: 15, color: 'var(--color-amber-dark)', flexShrink: 0 }} title={`Contato: ${new Date(lead.nextContact).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}`} aria-hidden="true" />
-      )}
       <i className="ti ti-chevron-right" style={{ fontSize: 15, color: 'var(--color-text-hint)', flexShrink: 0 }} aria-hidden="true" />
     </div>
   )

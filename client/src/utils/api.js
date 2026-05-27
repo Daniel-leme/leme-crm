@@ -47,6 +47,24 @@ export const apiUpdateSettings = (obj)    => fetch(url('/api/settings'), {
 // Health
 export const apiHealth = () => fetch(url('/api/health')).then(handle)
 
+// Patch parcial de lead (ex: só o status)
+export const apiPatchLead = (id, patch) => fetch(url(`/api/leads/${id}`), {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(patch),
+}).then(handle)
+
+// Contracts (contratos bancários do cliente)
+export const apiListContracts   = (leadId)          => fetch(url(`/api/leads/${leadId}/contracts`)).then(handle)
+export const apiCreateContract  = (leadId, data)    => fetch(url(`/api/leads/${leadId}/contracts`), {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data),
+}).then(handle)
+export const apiUpdateContract  = (leadId, id, data) => fetch(url(`/api/leads/${leadId}/contracts/${id}`), {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data),
+}).then(handle)
+export const apiDeleteContract  = (leadId, id)      => fetch(url(`/api/leads/${leadId}/contracts/${id}`), { method: 'DELETE' }).then(handle)
+
 // Operations
 export const apiListOperations       = ()         => fetch(url('/api/operations')).then(handle)
 export const apiGetOperation         = (id)       => fetch(url(`/api/operations/${id}`)).then(handle)
