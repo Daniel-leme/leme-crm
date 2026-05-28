@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
-import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS, BANK_CONTRACT_STATUSES, BANK_CONTRACT_STATUS_META, DEFAULT_BANKS, fmtDate, fmtCurrency } from '../constants'
+import { useState, useEffect, useCallback } from 'react'
+import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS, BANK_CONTRACT_STATUSES, BANK_CONTRACT_STATUS_META, DEFAULT_BANKS, fmtDate, fmtCurrency, fmtCpf } from '../constants'
 import StatusBadge from './StatusBadge'
 import { generateContractPDF } from '../utils/contractPdf'
-import { apiGetOperationByLead, apiListContracts, apiCreateContract, apiUpdateContract, apiDeleteContract, apiUpdateLead } from '../utils/api'
+import { apiGetOperationByLead, apiListContracts, apiCreateContract, apiUpdateContract, apiDeleteContract, apiUpdateLead, apiListLeadTasks, apiListContractTasks, apiCreateTask, apiUpdateTask, apiDeleteTask } from '../utils/api'
 import { ContractModal, ReviewModal } from './ContractModals'
+import TaskModal from './TaskModal'
 
 function InfoRow({ icon, label, value }) {
   if (!value) return null
@@ -261,17 +262,44 @@ function MetaAdsRow({ campaign, adSet, adName }) {
 }
 
 // ─── Item de contrato (cartão do lead) ───────────────────────────────────────
-function ContractItem({ contract, banks, onUpdate, onDelete }) {
+const CONTRACT_AUTO_TASK = {
+  'Assistência segunda via': { type: 'Assistência segunda via', description: 'Auxiliar cliente a obter segunda via do contrato.' },
+  'Revisar contrato':        { type: 'Revisão de contrato',     description: 'Revisar contrato bancário identificado.' },
+}
+
+function ContractItem({ contract, banks, onUpdate, onDelete, lead, responsibles, onTaskCreated }) {
   const [editModal, setEditModal]     = useState(false)
   const [reviewModal, setReviewModal] = useState(false)
   const [showPdf, setShowPdf]         = useState(false)
   const [showActionMenu, setShowActionMenu] = useState(false)
+  const [autoTaskModal, setAutoTaskModal]   = useState(null) // { type, description }
   const meta = BANK_CONTRACT_STATUS_META[contract.status] || BANK_CONTRACT_STATUS_META['Aguardando envio']
   const emb = parseFloat(contract.embeddedValue) || 0
   const products = parseInt(contract.productsCount) || 0
   const isReviewed = contract.status === 'Contrato revisado'
 
   const ACTION_STATUSES = BANK_CONTRACT_STATUSES.slice(0, 3) // os 3 que não são "Contrato revisado"
+
+  // Marca como concluídas (fluxo normal: status avança)
+  const getContractPendingTasks = async () => {
+    const all = await apiListLeadTasks(lead.id)
+    return all.filter(t => t.contract_id === contract.id && t.isAuto && t.status !== 'done')
+  }
+
+  const concludeContractTasks = async () => {
+    try {
+      const pending = await getContractPendingTasks()
+      await Promise.all(pending.map(t => apiUpdateTask(t.id, { status: 'done' })))
+      return pending[0]?.assignedTo || ''
+    } catch { return '' }
+  }
+
+  const deleteContractTasks = async () => {
+    try {
+      const pending = await getContractPendingTasks()
+      await Promise.all(pending.map(t => apiDeleteTask(t.id)))
+    } catch {}
+  }
 
   return (
     <>
@@ -286,7 +314,12 @@ function ContractItem({ contract, banks, onUpdate, onDelete }) {
       {reviewModal && (
         <ReviewModal
           contract={contract}
-          onSave={async (data) => { await onUpdate(data); setReviewModal(false) }}
+          onSave={async (data) => {
+            await concludeContractTasks()
+            await onUpdate(data)
+            setReviewModal(false)
+            onTaskCreated?.()
+          }}
           onClose={() => setReviewModal(false)}
         />
       )}
@@ -313,7 +346,22 @@ function ContractItem({ contract, banks, onUpdate, onDelete }) {
               const m = BANK_CONTRACT_STATUS_META[s]
               const isCurrent = contract.status === s
               return (
-                <button key={s} onClick={() => { onUpdate({ status: s }); setShowActionMenu(false) }} style={{
+                <button key={s} onClick={async () => {
+                  const autoTask = CONTRACT_AUTO_TASK[s]
+                  if (autoTask) {
+                    // Busca o responsável da tarefa atual para pré-preencher, sem concluir nada ainda
+                    const pending = await getContractPendingTasks()
+                    const prevAssignedTo = pending[0]?.assignedTo || ''
+                    setShowActionMenu(false)
+                    // pendingTaskIds: tarefas a concluir só quando o modal for salvo
+                    setAutoTaskModal({ ...autoTask, targetStatus: s, prefillAssignedTo: prevAssignedTo, pendingTaskIds: pending.map(t => t.id) })
+                  } else {
+                    await deleteContractTasks()
+                    onUpdate({ status: s, embeddedValue: 0, productsCount: 0 })
+                    setShowActionMenu(false)
+                    onTaskCreated?.()
+                  }
+                }} style={{
                   display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
                   borderRadius: 9, border: `1.5px solid ${isCurrent ? m.color : 'var(--color-border)'}`,
                   background: isCurrent ? m.bg : 'var(--color-bg)', cursor: 'pointer',
@@ -343,6 +391,37 @@ function ContractItem({ contract, banks, onUpdate, onDelete }) {
           </div>
         </div>
       )}
+      {autoTaskModal && (
+        <TaskModal
+          open={!!autoTaskModal}
+          onClose={() => setAutoTaskModal(null)}
+          onSave={async (data) => {
+            // Só agora conclui as tarefas anteriores e muda o status do contrato
+            if (autoTaskModal.pendingTaskIds?.length) {
+              await Promise.all(autoTaskModal.pendingTaskIds.map(id => apiUpdateTask(id, { status: 'done' })))
+            }
+            await apiCreateTask(data)
+            if (autoTaskModal.targetStatus) {
+              const isRevisado = autoTaskModal.targetStatus === 'Contrato revisado'
+              await onUpdate({
+                status: autoTaskModal.targetStatus,
+                ...(isRevisado ? {} : { embeddedValue: 0, productsCount: 0 }),
+              })
+            }
+            setAutoTaskModal(null)
+            onTaskCreated?.()
+          }}
+          lead={lead}
+          contractId={contract.id}
+          contractLabel={`${contract.bank || ''}${contract.type ? ` · ${contract.type}` : ''}`}
+          prefillType={autoTaskModal.type}
+          prefillAssignedTo={autoTaskModal.prefillAssignedTo}
+          contractMode={true}
+          isRequired={true}
+          responsibles={responsibles}
+        />
+      )}
+
       <div style={{ border: `1px solid ${isReviewed ? '#BBF7D0' : 'var(--color-border)'}`, borderRadius: 'var(--radius-lg)', overflow: 'hidden', background: isReviewed ? '#F0FDF4' : 'var(--color-surface)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px' }}>
           <div style={{ width: 32, height: 32, borderRadius: '50%', background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -536,14 +615,16 @@ function ContractsReportPopup({ lead, contracts, settings, onClose }) {
 }
 
 // ─── Seção de contratos bancários ────────────────────────────────────────────
-function BankContractsSection({ lead, settings, onRefreshLead }) {
+function BankContractsSection({ lead, settings, onRefreshLead, onTaskCreated, refreshToken }) {
   const banks = settings?.banks ? JSON.parse(settings.banks) : DEFAULT_BANKS
-  const [contracts, setContracts]     = useState([])
-  const [addModal, setAddModal]       = useState(false)
-  const [loading, setLoading]         = useState(true)
-  const [showReport, setShowReport]   = useState(false)
+  const responsibles = settings?.responsibles ? JSON.parse(settings.responsibles) : ['Riquelme', 'Daniel']
+  const [contracts, setContracts]       = useState([])
+  const [addModal, setAddModal]         = useState(false)
+  const [loading, setLoading]           = useState(true)
+  const [showReport, setShowReport]     = useState(false)
+  const [newContractForTask, setNewContractForTask] = useState(null) // contrato recém-criado aguardando tarefa
 
-  useEffect(() => {
+  const loadContracts = useCallback(() => {
     setLoading(true)
     apiListContracts(lead.id)
       .then(setContracts)
@@ -551,16 +632,20 @@ function BankContractsSection({ lead, settings, onRefreshLead }) {
       .finally(() => setLoading(false))
   }, [lead.id])
 
+  useEffect(() => { loadContracts() }, [loadContracts, refreshToken])
+
   const handleAdd = async (data) => {
     const created = await apiCreateContract(lead.id, data)
-    setContracts(prev => [...prev, created])
     setAddModal(false)
+    loadContracts()
     onRefreshLead?.()
+    const autoTask = CONTRACT_AUTO_TASK[created.status]
+    if (autoTask) setNewContractForTask({ contract: created, autoTask })
   }
 
   const handleUpdate = async (contract, data) => {
-    const updated = await apiUpdateContract(lead.id, contract.id, data)
-    setContracts(prev => prev.map(c => c.id === contract.id ? updated : c))
+    await apiUpdateContract(lead.id, contract.id, data)
+    loadContracts()
     onRefreshLead?.()
   }
 
@@ -569,6 +654,7 @@ function BankContractsSection({ lead, settings, onRefreshLead }) {
     await apiDeleteContract(lead.id, contract.id)
     setContracts(prev => prev.filter(c => c.id !== contract.id))
     onRefreshLead?.()
+    onTaskCreated?.()
   }
 
   const totalEmb = contracts.reduce((s, c) => s + (parseFloat(c.embeddedValue) || 0), 0)
@@ -582,6 +668,24 @@ function BankContractsSection({ lead, settings, onRefreshLead }) {
           banks={banks}
           onSave={handleAdd}
           onClose={() => setAddModal(false)}
+        />
+      )}
+      {newContractForTask && (
+        <TaskModal
+          open
+          onClose={() => setNewContractForTask(null)}
+          onSave={async (data) => {
+            await apiCreateTask(data)
+            setNewContractForTask(null)
+            onTaskCreated?.()
+          }}
+          lead={lead}
+          contractId={newContractForTask.contract.id}
+          contractLabel={`${newContractForTask.contract.bank || ''}${newContractForTask.contract.type ? ` · ${newContractForTask.contract.type}` : ''}`}
+          prefillType={newContractForTask.autoTask.type}
+          contractMode={true}
+          isRequired={true}
+          responsibles={responsibles}
         />
       )}
       {showReport && (
@@ -640,8 +744,11 @@ function BankContractsSection({ lead, settings, onRefreshLead }) {
               key={c.id}
               contract={c}
               banks={banks}
+              lead={lead}
+              responsibles={responsibles}
               onUpdate={(data) => handleUpdate(c, data)}
               onDelete={() => handleDelete(c)}
+              onTaskCreated={onTaskCreated}
             />
           ))}
         </div>
@@ -650,8 +757,301 @@ function BankContractsSection({ lead, settings, onRefreshLead }) {
   )
 }
 
+// ─── Seção de tarefas do lead ─────────────────────────────────────────────────
+const TASK_TYPE_ICONS = {
+  'Ligação':               'ti-phone',
+  'WhatsApp / Follow-up':  'ti-brand-whatsapp',
+  'Reunião':               'ti-users',
+  'Envio de documento':    'ti-file-export',
+  'Revisão de contrato':   'ti-file-search',
+  'Assistência segunda via':'ti-headset',
+  'Outro':                 'ti-checkbox',
+}
+
+function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, refreshToken }) {
+  const responsibles = settings?.responsibles ? JSON.parse(settings.responsibles) : ['Riquelme', 'Daniel']
+  const taskTypes    = settings?.taskTypes    ? JSON.parse(settings.taskTypes)    : null
+  const [tasks,        setTasks]        = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [newModal,     setNewModal]     = useState(false)
+  const [editTask,     setEditTask]     = useState(null)
+  const [resolveTask,  setResolveTask]  = useState(null)  // tarefa auto aguardando resolução
+  const [reagendModal, setReagendModal] = useState(null)  // { task, prefillType, prefillDesc }
+  const [reviewModal,  setReviewModal]  = useState(null)  // contrato a revisar
+  const [reviewTask,   setReviewTask]   = useState(null)  // task original que abriu o reviewModal
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try { setTasks(await apiListLeadTasks(lead.id)) } catch {}
+    setLoading(false)
+  }, [lead.id])
+
+  useEffect(() => { load() }, [load, refreshToken])
+
+  const handleDone = async (task) => {
+    // Tarefas auto de contrato têm fluxo especial
+    if (task.isAuto && task.contract_id) {
+      setResolveTask(task)
+      return
+    }
+    await apiUpdateTask(task.id, { status: 'done' })
+    await load()
+    onTaskCreated?.()
+  }
+
+  // Resolução: contrato recebido → abre próximo passo sem mudar nada ainda
+  const handleAutoResolveYes = async (task) => {
+    setResolveTask(null)
+    if (task.type === 'Assistência segunda via') {
+      // Abre modal de agendamento — só executa as mudanças no onSave
+      setReagendModal({
+        task,
+        prefillType: 'Revisão de contrato',
+        prefillDesc: 'Revisar contrato bancário identificado.',
+        prefillAssignedTo: task.assignedTo || '',
+        // flag: ao salvar, deve concluir a tarefa original e mudar status do contrato
+        pendingActions: { concludeTask: task, contractUpdate: { id: task.contract_id, data: { status: 'Revisar contrato' } } },
+      })
+    } else if (task.type === 'Revisão de contrato') {
+      // Abre ReviewModal — só executa as mudanças no onSave
+      const contracts = await apiListContracts(lead.id)
+      const contract  = contracts.find(c => c.id === task.contract_id)
+      if (contract) { setReviewModal(contract); setReviewTask(task) }
+    }
+  }
+
+  // Resolução: não conseguiu → reagenda nova tarefa do mesmo tipo
+  const handleAutoResolveNo = (task) => {
+    setResolveTask(null)
+    setReagendModal({
+      task,
+      prefillType: task.type,
+      prefillDesc: task.description || '',
+      prefillAssignedTo: task.assignedTo || '',
+    })
+  }
+
+  // Salva reagendamento (nova tarefa) — executa todas as ações pendentes atomicamente
+  const handleReagend = async (data) => {
+    const modal = reagendModal
+    setReagendModal(null)
+    // Se havia ações pendentes (vindo do fluxo "Sim"), executa agora
+    if (modal.pendingActions?.concludeTask) {
+      await apiUpdateTask(modal.pendingActions.concludeTask.id, { status: 'done' })
+    }
+    if (modal.pendingActions?.contractUpdate) {
+      await onContractUpdate?.(modal.pendingActions.contractUpdate.id, modal.pendingActions.contractUpdate.data)
+    }
+    // Agora marca a tarefa original como done (fluxo "Não, reagendar")
+    if (!modal.pendingActions) {
+      await apiUpdateTask(modal.task.id, { status: 'done' })
+    }
+    await apiCreateTask({ ...data, contract_id: modal.task.contract_id, isAuto: true })
+    await load()
+    onTaskCreated?.()
+  }
+
+  // Salva revisão do contrato
+  const handleReviewSave = async (data) => {
+    if (reviewTask) await apiUpdateTask(reviewTask.id, { status: 'done' })
+    await onContractUpdate?.(reviewModal.id, data)
+    setReviewModal(null)
+    setReviewTask(null)
+    await load()
+    onTaskCreated?.()
+  }
+
+  // Cancela ReviewModal sem salvar → reagenda tarefa para não deixar contrato sem tarefa
+  const handleReviewClose = () => {
+    const task = reviewTask
+    setReviewModal(null)
+    setReviewTask(null)
+    if (task) {
+      setReagendModal({
+        task,
+        prefillType: 'Revisão de contrato',
+        prefillDesc: '',
+        prefillAssignedTo: task.assignedTo || '',
+      })
+    }
+  }
+  const handleDelete = async (task) => {
+    if (!window.confirm('Excluir esta tarefa?')) return
+    await apiDeleteTask(task.id)
+    await load()
+    onTaskCreated?.()
+  }
+  const handleCreate = async (data) => {
+    await apiCreateTask(data)
+    setNewModal(false)
+    await load()
+    onTaskCreated?.()
+  }
+  const handleEdit = async (data) => {
+    onTaskEdited?.(editTask.id, editTask.dueDate)
+    await apiUpdateTask(editTask.id, data)
+    setEditTask(null)
+    await load()
+    onTaskCreated?.()
+  }
+
+  const today = new Date().toISOString().slice(0, 10)
+  const pending = tasks.filter(t => t.status !== 'done')
+  const done    = tasks.filter(t => t.status === 'done')
+
+  return (
+    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)', padding: '18px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <i className="ti ti-checkbox" style={{ fontSize: 18, color: 'var(--color-blue-mid)' }} />
+          <span style={{ fontSize: 14, fontWeight: 600 }}>Tarefas</span>
+          {pending.length > 0 && (
+            <span style={{ fontSize: 12, background: 'var(--color-blue-bg)', color: 'var(--color-blue-dark)', padding: '2px 8px', borderRadius: 99, fontWeight: 600 }}>
+              {pending.length}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => setNewModal(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', cursor: 'pointer', fontWeight: 500 }}
+        >
+          <i className="ti ti-plus" style={{ fontSize: 13 }} /> Nova tarefa
+        </button>
+      </div>
+
+      {loading ? (
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-hint)', textAlign: 'center', padding: '12px 0' }}>Carregando…</p>
+      ) : pending.length === 0 && done.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--color-text-hint)' }}>
+          <i className="ti ti-checkbox" style={{ fontSize: 28, display: 'block', marginBottom: 6 }} />
+          <p style={{ margin: 0, fontSize: 13 }}>Nenhuma tarefa. Crie uma para não esquecer este lead.</p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {pending.map(task => {
+            const isLate = task.dueDate && task.dueDate < today
+            const icon = TASK_TYPE_ICONS[task.type] || 'ti-checkbox'
+            return (
+              <div key={task.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderRadius: 'var(--radius-lg)', border: `1px solid ${isLate ? '#FECACA' : 'var(--color-border)'}`, background: isLate ? '#FFF5F5' : 'var(--color-bg)' }}>
+                <button onClick={() => handleDone(task)} style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isLate ? '#EF4444' : 'var(--color-border)'}`, background: 'transparent', cursor: 'pointer', flexShrink: 0, marginTop: 2 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                    <i className={`ti ${icon}`} style={{ fontSize: 12, color: isLate ? '#C62828' : 'var(--color-blue-mid)' }} />
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{task.type}</span>
+                    {!!task.isAuto && !!task.contract_id && (
+                      <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: '#EDE9FE', color: '#7C3AED', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <i className="ti ti-file-description" style={{ fontSize: 10 }} />
+                        {task.contract_bank || 'Contrato'}{task.contract_type ? ` · ${task.contract_type}` : ''}
+                      </span>
+                    )}
+                  </div>
+                  {task.description ? <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-secondary)' }}>{task.description}</p> : null}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                    {task.dueDate && (
+                      <span style={{ fontSize: 11, color: isLate ? '#C62828' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <i className="ti ti-calendar" style={{ fontSize: 11 }} />
+                        {task.dueDate.split('-').reverse().join('/')}{task.dueTime && task.dueTime !== '0' ? ` às ${task.dueTime}` : ''}
+                        {isLate ? ' — ATRASADA' : ''}
+                      </span>
+                    )}
+                    {task.assignedTo && (
+                      <span style={{ fontSize: 11, color: 'var(--color-text-hint)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <i className="ti ti-user" style={{ fontSize: 11 }} />{task.assignedTo}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+                  <button onClick={() => setEditTask(task)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, color: 'var(--color-text-hint)', fontSize: 14 }}><i className="ti ti-pencil" /></button>
+                  {!(task.isAuto && task.contract_id) && (
+                    <button onClick={() => handleDelete(task)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, color: 'var(--color-text-hint)', fontSize: 14 }}><i className="ti ti-trash" /></button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+          {done.length > 0 && (
+            <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--color-text-hint)' }}>
+              + {done.length} tarefa{done.length !== 1 ? 's' : ''} concluída{done.length !== 1 ? 's' : ''}
+            </p>
+          )}
+        </div>
+      )}
+
+      {newModal && (
+        <TaskModal open onClose={() => setNewModal(false)} onSave={handleCreate} lead={lead} responsibles={responsibles} taskTypes={taskTypes} />
+      )}
+      {editTask && (
+        <TaskModal open onClose={() => setEditTask(null)} onSave={handleEdit} lead={lead} responsibles={responsibles} taskTypes={taskTypes} editTask={editTask} contractMode={!!(editTask.isAuto && editTask.contract_id)} />
+      )}
+
+      {/* Diálogo de resolução de tarefa automática */}
+      {resolveTask && (
+        <div onClick={() => setResolveTask(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', padding: '20px 20px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#E3F2FD', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <i className="ti ti-checkbox" style={{ fontSize: 15, color: '#1565C0' }} />
+              </div>
+              <div>
+                <p style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Concluir tarefa</p>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-secondary)' }}>{resolveTask.type}</p>
+              </div>
+            </div>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.5 }}>
+              {resolveTask.type === 'Assistência segunda via'
+                ? 'O contrato foi recebido e está pronto para revisão?'
+                : 'A revisão do contrato foi concluída?'}
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => handleAutoResolveNo(resolveTask)}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: 'var(--color-text-secondary)' }}
+              >
+                {resolveTask.type === 'Assistência segunda via' ? 'Não, reagendar' : 'Não, remarcar'}
+              </button>
+              <button
+                onClick={() => handleAutoResolveYes(resolveTask)}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 'var(--radius-md)', border: 'none', background: '#1565C0', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
+              >
+                {resolveTask.type === 'Assistência segunda via' ? 'Sim, revisar contrato' : 'Sim, preencher revisão'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de reagendamento */}
+      {reagendModal && (
+        <TaskModal
+          open
+          onClose={() => setReagendModal(null)}
+          onSave={handleReagend}
+          lead={lead}
+          contractId={reagendModal.task.contract_id}
+          contractLabel={`${reagendModal.task.contract_bank || ''}${reagendModal.task.contract_type ? ` · ${reagendModal.task.contract_type}` : ''}`}
+          prefillType={reagendModal.prefillType}
+          prefillAssignedTo={reagendModal.prefillAssignedTo}
+          contractMode={true}
+          isRequired={true}
+          responsibles={responsibles}
+        />
+      )}
+
+      {/* ReviewModal ao concluir revisão */}
+      {reviewModal && (
+        <ReviewModal
+          contract={reviewModal}
+          onSave={handleReviewSave}
+          onClose={handleReviewClose}
+        />
+      )}
+    </div>
+  )
+}
+
 // ─── LeadDetail principal ─────────────────────────────────────────────────────
-export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusChange, onOpenOperation, onRefresh }) {
+export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusChange, onOpenOperation, onRefresh, onTaskEdited }) {
   const lossReasons = settings?.lossReasons
     ? JSON.parse(settings.lossReasons)
     : DEFAULT_LOSS_REASONS
@@ -661,6 +1061,8 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
   const [showLossModal, setShowLossModal]         = useState(false)
   const [contractDataModal, setContractDataModal] = useState(false)
   const [contractDataForm, setContractDataForm]   = useState({})
+  const [taskRefreshToken, setTaskRefreshToken]   = useState(0)
+  const bumpTaskRefresh = useCallback(() => setTaskRefreshToken(v => v + 1), [])
 
   const CONTRACT_REQUIRED = ['name', 'cpf', 'address']
   const CONTRACT_OPTIONAL = ['rg', 'birthDate', 'email']
@@ -886,7 +1288,20 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
       </div>
 
       {/* ── Contratos bancários ───────────────────────────────────────────── */}
-      {!isNewLead && <BankContractsSection lead={lead} settings={settings} onRefreshLead={onRefresh} />}
+      {!isNewLead && <BankContractsSection lead={lead} settings={settings} onRefreshLead={onRefresh} onTaskCreated={() => { bumpTaskRefresh(); onRefresh() }} refreshToken={taskRefreshToken} />}
+
+      {/* ── Tarefas ───────────────────────────────────────────────────────── */}
+      <LeadTasksSection
+        lead={lead}
+        settings={settings}
+        refreshToken={taskRefreshToken}
+        onTaskCreated={() => { bumpTaskRefresh(); onRefresh() }}
+        onContractUpdate={async (contractId, data) => {
+          await apiUpdateContract(lead.id, contractId, data)
+          bumpTaskRefresh()
+          onRefresh()
+        }}
+      />
 
       {/* ── Popup dados do contrato ───────────────────────────────────────── */}
       {contractDataModal && (

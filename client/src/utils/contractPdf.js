@@ -233,12 +233,7 @@ export function generateContractPDF(lead, settings) {
     state, { spaceAfter: 6 }
   )
 
-  // ── PIX + Data ────────────────────────────────────────────────────────────
-  writeParagraph(doc,
-    `CHAVE PIX PARA PAGAMENTO: ${settings.pixKey} (CNPJ)`,
-    state, { bold: true, spaceAfter: 3 }
-  )
-
+  // ── Data ──────────────────────────────────────────────────────────────────
   writeParagraph(doc, `${(settings.forumCity || 'Jundiaí/SP').split('/')[0]}, ${nowBR()}.`, state, { spaceAfter: 14 })
 
   // ── Assinaturas ───────────────────────────────────────────────────────────

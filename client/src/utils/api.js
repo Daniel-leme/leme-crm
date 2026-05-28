@@ -73,3 +73,17 @@ export const apiUpdateOperation      = (id, data) => fetch(url(`/api/operations/
   method: 'PUT', headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(data),
 }).then(handle)
+
+// Tasks
+export const apiListTasks          = ()             => fetch(url('/api/tasks')).then(handle)
+export const apiListContractTasks  = (contractId)   => fetch(url(`/api/contracts/${contractId}/tasks`)).then(handle)
+export const apiListLeadTasks  = (leadId)    => fetch(url(`/api/leads/${leadId}/tasks`)).then(handle)
+export const apiCreateTask     = (data)      => fetch(url('/api/tasks'), {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data),
+}).then(handle)
+export const apiUpdateTask     = (id, data)  => fetch(url(`/api/tasks/${id}`), {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data),
+}).then(handle)
+export const apiDeleteTask     = (id)        => fetch(url(`/api/tasks/${id}`), { method: 'DELETE' }).then(handle)

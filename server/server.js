@@ -187,6 +187,25 @@ async function initDb() {
     )
   `)
 
+  // Tabela de tarefas
+  await run(db, `
+    CREATE TABLE IF NOT EXISTS tasks (
+      id          TEXT PRIMARY KEY,
+      lead_id     TEXT NOT NULL,
+      contract_id TEXT DEFAULT '',
+      type        TEXT DEFAULT 'Ligação',
+      description TEXT DEFAULT '',
+      assignedTo  TEXT DEFAULT '',
+      dueDate     TEXT DEFAULT '',
+      dueTime     TEXT DEFAULT '',
+      status      TEXT DEFAULT 'pending',
+      isAuto      INTEGER DEFAULT 0,
+      createdAt   TEXT NOT NULL,
+      updatedAt   TEXT NOT NULL,
+      FOREIGN KEY (lead_id) REFERENCES leads(id)
+    )
+  `)
+
   await run(db, `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`)
 
   const defaultSettings = {
@@ -203,6 +222,7 @@ async function initDb() {
     ]),
     responsibles:  JSON.stringify(['Daniel', 'Riquelme']),
     lossReasons:   JSON.stringify(['Desqualificado', 'Sem Valores', 'Sem Contato', 'Desistiu']),
+    taskTypes:     JSON.stringify(['Ligação', 'WhatsApp / Follow-up', 'Reunião', 'Envio de documento', 'Outro']),
   }
   for (const [k, v] of Object.entries(defaultSettings)) {
     await run(db, 'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', [k, v])
@@ -518,6 +538,7 @@ app.put('/api/leads/:lead_id/contracts/:id', async (req, res) => {
 
 app.delete('/api/leads/:lead_id/contracts/:id', async (req, res) => {
   try {
+    await run(db, `DELETE FROM tasks WHERE contract_id = ?`, [req.params.id])
     await run(db, `DELETE FROM contracts WHERE id = ? AND lead_id = ?`, [req.params.id, req.params.lead_id])
     const now = new Date().toISOString()
     await syncLeadEmbedded(req.params.lead_id, now)
@@ -543,6 +564,92 @@ async function syncLeadEmbedded(leadId, now) {
   await run(db, `UPDATE leads SET embeddedValue=?, updatedAt=? WHERE id=?`, [total, now, leadId])
   await run(db, `UPDATE operations SET embeddedValue=?, updatedAt=? WHERE lead_id=?`, [total, now, leadId])
 }
+
+// ─── Tasks ────────────────────────────────────────────────────────────────────
+
+app.get('/api/tasks', async (req, res) => {
+  try {
+    const rows = await all(db, `
+      SELECT t.*,
+        l.name as lead_name, l.phone as lead_phone, l.status as lead_status, l.isLost as lead_isLost,
+        c.bank as contract_bank, c.type as contract_type
+      FROM tasks t
+      JOIN leads l ON l.id = t.lead_id
+      LEFT JOIN contracts c ON c.id = t.contract_id
+      ORDER BY t.dueDate ASC, t.dueTime ASC, t.createdAt ASC
+    `)
+    res.json(rows)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.get('/api/leads/:lead_id/tasks', async (req, res) => {
+  try {
+    const rows = await all(db, `
+      SELECT t.*, c.bank as contract_bank, c.type as contract_type
+      FROM tasks t
+      LEFT JOIN contracts c ON c.id = t.contract_id
+      WHERE t.lead_id = ?
+      ORDER BY t.dueDate ASC, t.dueTime ASC, t.createdAt ASC
+    `, [req.params.lead_id])
+    res.json(rows)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.get('/api/contracts/:contract_id/tasks', async (req, res) => {
+  try {
+    const rows = await all(db, `
+      SELECT * FROM tasks WHERE contract_id = ? AND status = 'pending' ORDER BY createdAt ASC
+    `, [req.params.contract_id])
+    res.json(rows)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.post('/api/tasks', async (req, res) => {
+  try {
+    const t = req.body
+    const now = new Date().toISOString()
+    const id = genId()
+    // Garante unicidade: contrato só pode ter uma tarefa auto pendente
+    if (t.isAuto && t.contract_id) {
+      await run(db, `DELETE FROM tasks WHERE contract_id = ? AND isAuto = 1 AND status = 'pending'`, [t.contract_id])
+    }
+    await run(db, `
+      INSERT INTO tasks (id, lead_id, contract_id, type, description, assignedTo, dueDate, dueTime, status, isAuto, createdAt, updatedAt)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    `, [
+      id, t.lead_id, t.contract_id||'', t.type||'Ligação',
+      t.description||'', t.assignedTo||'', t.dueDate||'', t.dueTime||'',
+      t.status||'pending', t.isAuto?1:0, now, now,
+    ])
+    res.status(201).json(await get(db, `SELECT * FROM tasks WHERE id = ?`, [id]))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.put('/api/tasks/:id', async (req, res) => {
+  try {
+    const t = req.body
+    const now = new Date().toISOString()
+    const ex = await get(db, `SELECT * FROM tasks WHERE id = ?`, [req.params.id])
+    if (!ex) return res.status(404).json({ error: 'Tarefa não encontrada' })
+    await run(db, `
+      UPDATE tasks SET type=?, description=?, assignedTo=?, dueDate=?, dueTime=?, status=?, updatedAt=?
+      WHERE id=?
+    `, [
+      t.type??ex.type, t.description??ex.description,
+      t.assignedTo??ex.assignedTo, t.dueDate??ex.dueDate,
+      t.dueTime??ex.dueTime, t.status??ex.status,
+      now, req.params.id,
+    ])
+    res.json(await get(db, `SELECT * FROM tasks WHERE id = ?`, [req.params.id]))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.delete('/api/tasks/:id', async (req, res) => {
+  try {
+    await run(db, `DELETE FROM tasks WHERE id = ?`, [req.params.id])
+    res.json({ ok: true })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 app.get('/api/settings', async (req, res) => {

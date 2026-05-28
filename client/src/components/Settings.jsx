@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { DEFAULT_BANKS, LEAD_SOURCES, LOSS_REASONS } from '../constants'
+import { DEFAULT_BANKS, LEAD_SOURCES, LOSS_REASONS, DEFAULT_TASK_TYPES } from '../constants'
 
 function Field({ label, hint, children, full }) {
   return (
@@ -94,6 +94,7 @@ export default function Settings({ settings, onSave }) {
     responsibles: JSON.parse(settings.responsibles || '["Daniel","Riquelme"]'),
     lossReasons:  JSON.parse(settings.lossReasons  || JSON.stringify(LOSS_REASONS)),
     leadSources:  JSON.parse(settings.leadSources  || JSON.stringify(LEAD_SOURCES)),
+    taskTypes:    JSON.parse(settings.taskTypes    || JSON.stringify(DEFAULT_TASK_TYPES)),
   })
   const set = (k, v) => setForm({ ...form, [k]: v })
   const dirty = JSON.stringify(form) !== JSON.stringify({
@@ -102,6 +103,7 @@ export default function Settings({ settings, onSave }) {
     responsibles: JSON.parse(settings.responsibles || '["Daniel","Riquelme"]'),
     lossReasons:  JSON.parse(settings.lossReasons  || JSON.stringify(LOSS_REASONS)),
     leadSources:  JSON.parse(settings.leadSources  || JSON.stringify(LEAD_SOURCES)),
+    taskTypes:    JSON.parse(settings.taskTypes    || JSON.stringify(DEFAULT_TASK_TYPES)),
   })
 
   const handleSave = () => {
@@ -111,6 +113,7 @@ export default function Settings({ settings, onSave }) {
       responsibles: JSON.stringify(form.responsibles),
       lossReasons:  JSON.stringify(form.lossReasons),
       leadSources:  JSON.stringify(form.leadSources),
+      taskTypes:    JSON.stringify(form.taskTypes),
     })
   }
 
@@ -164,6 +167,14 @@ export default function Settings({ settings, onSave }) {
         items={form.leadSources}
         onChange={v => set('leadSources', v)}
         placeholder="Nova origem…"
+      />
+
+      {/* ── Tipos de tarefa ──────────────────────────────────────────────── */}
+      <SectionTitle icon="ti-checkbox" label="Tipos de tarefa" />
+      <TagEditor
+        items={form.taskTypes}
+        onChange={v => set('taskTypes', v)}
+        placeholder="Novo tipo de tarefa…"
       />
 
       {/* ── Motivos de perda ─────────────────────────────────────────────── */}

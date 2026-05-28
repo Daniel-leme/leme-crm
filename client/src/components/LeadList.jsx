@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, OPERATIONAL_STATUSES, fmtCurrency } from '../constants'
+import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, OPERATIONAL_STATUSES, fmtCurrency, fmtDate } from '../constants'
+
+const STATUS_DEPTH = Object.fromEntries(COMMERCIAL_STATUSES.map((s, i) => [s, i]))
 import StatusBadge from './StatusBadge'
 
 
@@ -13,7 +15,7 @@ const STATUS_SIDE_BG = {
   'Perdido':           '#FEE2E2',
 }
 
-function LeadRow({ lead, onSelect }) {
+function LeadRow({ lead, onSelect, isOrphan, isLate, isToday, nextTask }) {
   const emb       = parseFloat(lead.embeddedValue) || 0
   const leme      = emb * ((lead.feePercent ?? 50) / 100)
   const lost      = !!lead.isLost
@@ -22,23 +24,40 @@ function LeadRow({ lead, onSelect }) {
   const sideBg    = STATUS_SIDE_BG[statusKey] || '#F1EFE8'
   const hasValues = emb > 0
 
+  // tarja: atrasada=vermelho grosso, órfã=âmbar grosso, hoje=verde grosso, futura=azul fino, padrão=cinza fino
+  const tarjaColor = isLate ? '#EF4444' : isOrphan ? '#F59E0B' : isToday ? '#22C55E' : '#3B82F6'
+  const tarjaThick = isLate || isOrphan || isToday
+  const tarjaWidth = tarjaThick ? '16px' : '4px'
+  const bordaColor = isLate ? '#FCA5A5' : isOrphan ? '#FCD34D' : isToday ? '#86EFAC' : 'var(--color-border)'
+
   return (
     <div
       onClick={() => onSelect(lead)}
       style={{
         display: 'grid',
-        gridTemplateColumns: '1fr auto',
+        gridTemplateColumns: `${tarjaWidth} 1fr auto`,
         borderRadius: 12,
-        border: `1px solid ${lost ? '#f5c6cb' : 'var(--color-border)'}`,
+        border: `1px solid ${lost ? 'var(--color-border)' : bordaColor}`,
         background: 'var(--color-surface)',
         cursor: 'pointer',
         overflow: 'hidden',
         opacity: lost ? 0.75 : 1,
-        transition: 'box-shadow 0.15s, border-color 0.15s',
+        transition: 'box-shadow 0.15s',
       }}
-      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)'; e.currentTarget.style.borderColor = meta.color + '66' }}
-      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = lost ? '#f5c6cb' : 'var(--color-border)' }}
+      onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)'}
+      onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
     >
+      {/* ── Tarja lateral ── */}
+      <div style={{
+        background: lost ? '#D1D5DB' : tarjaColor,
+        borderRadius: '12px 0 0 12px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {!lost && isLate   && <i className="ti ti-alarm-filled"  style={{ fontSize: 8, color: '#fff', lineHeight: 1 }} />}
+        {!lost && isOrphan && <span style={{ fontSize: 9, fontWeight: 900, color: '#fff', lineHeight: 1, userSelect: 'none' }}>!</span>}
+        {!lost && isToday  && <i className="ti ti-flag-filled"   style={{ fontSize: 8, color: '#fff', lineHeight: 1 }} />}
+      </div>
+
       {/* ── Coluna esquerda: identidade ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px' }}>
         {/* Avatar com cor do status */}
@@ -52,16 +71,36 @@ function LeadRow({ lead, onSelect }) {
         </div>
 
         <div style={{ minWidth: 0 }}>
-          <p style={{ margin: 0, fontWeight: 600, fontSize: 14, lineHeight: 1.3 }}>{lead.name || '(sem nome)'}</p>
-          <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--color-text-hint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {[lead.phone, lead.bank, lead.responsible].filter(Boolean).join(' · ') || '—'}
-          </p>
-          {lost && (
-            <p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--color-red-dark)', fontWeight: 500 }}>
-              Perdido em <strong>{lead.lastActiveStatus || lead.status}</strong>
-              {lead.lossReason ? ` · ${lead.lossReason}` : ''}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            {isLate                       && <i className="ti ti-alarm"          style={{ fontSize: 11, color: '#C62828', flexShrink: 0 }} />}
+            {isOrphan && !isLate          && <i className="ti ti-alert-triangle" style={{ fontSize: 11, color: '#B45309', flexShrink: 0 }} />}
+            {isToday  && !isLate          && <i className="ti ti-flag-2"         style={{ fontSize: 11, color: '#15803D', flexShrink: 0 }} />}
+            <p style={{ margin: 0, fontWeight: 600, fontSize: 14, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.name || '(sem nome)'}</p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-hint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {lost
+                ? `Perdido em ${lead.lastActiveStatus || lead.status}${lead.lossReason ? ` · ${lead.lossReason}` : ''}`
+                : [lead.phone, lead.bank, lead.responsible].filter(Boolean).join(' · ') || '—'}
             </p>
-          )}
+            {!lost && (() => {
+              const taskColor = isLate ? '#C62828' : isOrphan ? '#B45309' : isToday ? '#15803D' : '#1565C0'
+              const taskBg    = isLate ? '#FEE2E2' : isOrphan ? '#FEF3C7' : isToday ? '#DCFCE7' : '#DBEAFE'
+              const taskIcon  = isLate ? 'ti-alarm' : isOrphan ? 'ti-alert-triangle' : isToday ? 'ti-flag-2' : 'ti-calendar'
+              const taskLabel = isOrphan
+                ? 'Sem tarefa'
+                : nextTask?.dueDate
+                  ? fmtDate(nextTask.dueDate) + (nextTask.dueTime ? ` ${nextTask.dueTime}` : '')
+                  : null
+              if (!taskLabel) return null
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '1px 6px', borderRadius: 99, background: taskBg, flexShrink: 0 }}>
+                  <i className={`ti ${taskIcon}`} style={{ fontSize: 9, color: taskColor }} />
+                  <span style={{ fontSize: 10, fontWeight: 600, color: taskColor, whiteSpace: 'nowrap' }}>{taskLabel}</span>
+                </div>
+              )
+            })()}
+          </div>
         </div>
       </div>
 
@@ -82,18 +121,14 @@ function LeadRow({ lead, onSelect }) {
         </div>
 
         {/* Potencial */}
-        {hasValues ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-            <span style={{ fontSize: 17, fontWeight: 800, color: '#15803D', lineHeight: 1 }}>
-              {fmtCurrency(leme)}
-            </span>
-            <span style={{ fontSize: 10, color: 'var(--color-text-hint)', whiteSpace: 'nowrap' }}>
-              embutido {fmtCurrency(emb)}
-            </span>
-          </div>
-        ) : (
-          <span style={{ fontSize: 11, color: 'var(--color-text-hint)' }}>sem valores</span>
-        )}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+          <span style={{ fontSize: 17, fontWeight: 800, color: hasValues ? '#15803D' : 'var(--color-text-hint)', lineHeight: 1 }}>
+            {hasValues ? fmtCurrency(leme) : '—'}
+          </span>
+          <span style={{ fontSize: 10, color: 'var(--color-text-hint)', whiteSpace: 'nowrap' }}>
+            {hasValues ? `embutido ${fmtCurrency(emb)}` : 'sem valores'}
+          </span>
+        </div>
       </div>
     </div>
   )
@@ -278,7 +313,38 @@ function ConveyorBelt({ leads, filterStatus, onFilter }) {
   )
 }
 
-export default function LeadList({ leads, onSelect, onNew }) {
+function todayStr() { return new Date().toISOString().slice(0, 10) }
+
+// Retorna a tarefa pendente mais urgente de um lead (menor dueDate, priorizando com hora)
+function leadNextTask(leadId, tasks) {
+  return (tasks || [])
+    .filter(t => t.status !== 'done' && t.lead_id === leadId)
+    .sort((a, b) => {
+      const da = (a.dueDate || '9999') + (a.dueTime ? 'T' + a.dueTime : 'T99:99')
+      const db = (b.dueDate || '9999') + (b.dueTime ? 'T' + b.dueTime : 'T99:99')
+      return da.localeCompare(db)
+    })[0] || null
+}
+
+// 0=atrasada, 1=sem tarefa, 2=hoje, 3=futura, 4=contrato assinado
+function taskPriority(lead, nextTask, orphanIds, today, nowTime) {
+  if (lead.status === 'Contrato Assinado') return 4
+  if (!nextTask) return 1
+  if (!nextTask.dueDate || nextTask.dueDate < today) return 0
+  if (nextTask.dueDate === today) {
+    if (nextTask.dueTime && nextTask.dueTime <= nowTime) return 0 // hora já passou → atrasada
+    return 2
+  }
+  return 3
+}
+
+// Chave de ordenação interna dentro do bloco: data+hora, tarefas com hora antes das sem hora
+function taskSortKey(nextTask) {
+  if (!nextTask || !nextTask.dueDate) return '9999-99-99T99:99'
+  return nextTask.dueDate + (nextTask.dueTime ? 'T' + nextTask.dueTime : 'T99:99')
+}
+
+export default function LeadList({ leads, tasks, onSelect, onNew }) {
   const [search, setSearch]         = useState('')
   const [filterStatus, setFilter]   = useState('Todos')
   const [filterResp, setFilterResp] = useState('Todos')
@@ -286,13 +352,42 @@ export default function LeadList({ leads, onSelect, onNew }) {
   const activeLeads = leads.filter(l => !l.isLost)
   const lostLeads   = leads.filter(l => !!l.isLost)
 
+  const today   = todayStr()
+  const nowTime = new Date().toTimeString().slice(0, 5) // "HH:MM"
+  const pendingTasks = (tasks || []).filter(t => t.status !== 'done')
+
+  // Leads órfãos: ativos (não perdidos, não Contrato Assinado) sem tarefa pending
+  const leadsWithTask = new Set(pendingTasks.map(t => t.lead_id))
+  const orphanIds = new Set(
+    activeLeads
+      .filter(l => l.status !== 'Contrato Assinado' && !leadsWithTask.has(l.id))
+      .map(l => l.id)
+  )
+
+  // Tarefa está atrasada se: data < hoje, OU data = hoje e tem hora <= agora
+  const isTaskLate = (t) => {
+    if (!t.dueDate) return false
+    if (t.dueDate < today) return true
+    if (t.dueDate === today && t.dueTime && t.dueTime <= nowTime) return true
+    return false
+  }
+
+  // Leads com tarefa atrasada
+  const lateIds = new Set(
+    pendingTasks.filter(isTaskLate).map(t => t.lead_id)
+  )
+  // Leads com tarefa para hoje (e sem atrasadas)
+  const todayIds = new Set(
+    pendingTasks
+      .filter(t => t.dueDate === today && !isTaskLate(t))
+      .map(t => t.lead_id)
+  )
+
   const responsibles = ['Todos', ...Array.from(new Set(leads.map(l => l.responsible).filter(Boolean)))]
 
   const isLostMode  = filterStatus === 'Perdas' || filterStatus.startsWith('Perdas:')
   const lostStage   = isLostMode && filterStatus.startsWith('Perdas:') ? filterStatus.slice('Perdas:'.length) : null
   // lostStage '__op__' = todas as perdas operacionais (vindas do funil operacional)
-
-  const STATUS_ORDER = COMMERCIAL_STATUSES.reduce((acc, s, i) => ({ ...acc, [s]: i }), {})
 
   const applyFilters = (list) => {
     const q = search.toLowerCase()
@@ -302,7 +397,6 @@ export default function LeadList({ leads, onSelect, onNew }) {
         (l.name || '').toLowerCase().includes(q) ||
         (l.phone || '').includes(q) ||
         (l.cpf || '').includes(q)
-      // No modo perdas por etapa: filtra pelo lastActiveStatus
       const matchStatus = isLostMode
         ? (lostStage === '__op__'
             ? OPERATIONAL_STATUSES.includes(l.lastActiveStatus)
@@ -314,7 +408,20 @@ export default function LeadList({ leads, onSelect, onNew }) {
       return matchSearch && matchStatus && matchResp
     })
     if (!isLostMode && filterStatus === 'Todos') {
-      filtered.sort((a, b) => (STATUS_ORDER[b.status] ?? 0) - (STATUS_ORDER[a.status] ?? 0))
+      filtered.sort((a, b) => {
+        const ntA = leadNextTask(a.id, pendingTasks)
+        const ntB = leadNextTask(b.id, pendingTasks)
+        const pA  = taskPriority(a, ntA, orphanIds, today, nowTime)
+        const pB  = taskPriority(b, ntB, orphanIds, today, nowTime)
+        if (pA !== pB) return pA - pB
+        const skA = taskSortKey(ntA)
+        const skB = taskSortKey(ntB)
+        if (skA !== skB) return skA.localeCompare(skB)
+        // Terceiro nível: mais avançado no funil vem primeiro
+        const dA = STATUS_DEPTH[a.status] ?? -1
+        const dB = STATUS_DEPTH[b.status] ?? -1
+        return dB - dA
+      })
     }
     return filtered
   }
@@ -356,14 +463,38 @@ export default function LeadList({ leads, onSelect, onNew }) {
       <ConveyorBelt leads={leads} filterStatus={filterStatus} onFilter={setFilter} />
 
       {/* ── Barra de busca + filtro responsável ──────────────────────────── */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ flex: 1, minWidth: 200, position: 'relative' }}>
           <i className="ti ti-search" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: 'var(--color-text-hint)' }} aria-hidden="true" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nome, CPF, telefone ou banco…" style={{ paddingLeft: 34 }} />
         </div>
-        <select value={filterResp} onChange={e => setFilterResp(e.target.value)} style={{ width: 'auto', minWidth: 140 }}>
-          {responsibles.map(r => <option key={r} value={r}>{r === 'Todos' ? 'Todos os responsáveis' : r}</option>)}
-        </select>
+
+        {/* Filtro de responsável como pills */}
+        <div style={{ display: 'flex', gap: 4, padding: '3px', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-full)' }}>
+          {responsibles.map(r => {
+            const active = filterResp === r
+            return (
+              <button
+                key={r}
+                onClick={() => setFilterResp(r)}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 'var(--radius-full)',
+                  border: 'none',
+                  background: active ? '#1A1917' : 'transparent',
+                  color: active ? '#fff' : 'var(--color-text-secondary)',
+                  fontSize: 12, fontWeight: active ? 600 : 400,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {r === 'Todos' ? 'Todos' : r}
+              </button>
+            )
+          })}
+        </div>
+
         <button onClick={onNew} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 'var(--radius-md)', background: 'var(--color-blue-mid)', color: '#fff', border: 'none', fontWeight: 500, fontSize: 14, whiteSpace: 'nowrap' }}>
           <i className="ti ti-plus" style={{ fontSize: 17 }} aria-hidden="true" /> Novo Lead
         </button>
@@ -378,7 +509,7 @@ export default function LeadList({ leads, onSelect, onNew }) {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {filteredActive.map(lead => <LeadRow key={lead.id} lead={lead} onSelect={onSelect} />)}
+            {filteredActive.map(lead => <LeadRow key={lead.id} lead={lead} onSelect={onSelect} isOrphan={orphanIds.has(lead.id)} isLate={lateIds.has(lead.id)} isToday={!lateIds.has(lead.id) && todayIds.has(lead.id)} nextTask={leadNextTask(lead.id, pendingTasks)} />)}
           </div>
         )
       )}

@@ -4,6 +4,7 @@ import {
   apiListLeads, apiCreateLead, apiUpdateLead, apiDeleteLead,
   apiGetSettings, apiUpdateSettings, apiHealth,
   apiListOperations, apiUpdateOperation,
+  apiListTasks,
 } from './utils/api'
 import LeadList       from './components/LeadList'
 import LeadForm       from './components/LeadForm'
@@ -12,6 +13,9 @@ import Settings       from './components/Settings'
 import LemeLogo       from './components/LemeLogo'
 import OperationList  from './components/OperationList'
 import OperationDetail from './components/OperationDetail'
+import TaskList       from './components/TaskList'
+import { NotificationBell, NotificationToasts } from './components/NotificationCenter'
+import { useNotifications } from './hooks/useNotifications'
 
 const SIDEBAR_W   = 230
 const CONTENT_MAX = 920
@@ -29,6 +33,7 @@ function useIsMobile() {
 export default function App() {
   const [leads,        setLeads]        = useState([])
   const [operations,   setOperations]   = useState([])
+  const [tasks,        setTasks]        = useState([])
   const [settings,     setSettings]     = useState(null)
   const [view,         setView]         = useState('list')
   const [selectedId,   setSelectedId]   = useState(null)
@@ -42,10 +47,11 @@ export default function App() {
   // ─── Carga inicial ─────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
     try {
-      const [ls, ops, st] = await Promise.all([apiListLeads(), apiListOperations(), apiGetSettings()])
+      const [ls, ops, st, ts] = await Promise.all([apiListLeads(), apiListOperations(), apiGetSettings(), apiListTasks()])
       setLeads(ls)
       setOperations(ops)
       setSettings(st)
+      setTasks(ts)
       setConnState('online')
     } catch (e) {
       console.error('Falha ao conectar com o servidor:', e)
@@ -58,6 +64,16 @@ export default function App() {
     refresh()
   }, [refresh])
 
+  // Reclassificação automática: força re-render a cada 60s sem nova chamada ao servidor
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Central de notificações
+  const { notifications, unreadCount, toasts, dismissToast, clearNotifications, triggerTest, resetFired, clearFiredForTask } = useNotifications(tasks)
+
   useEffect(() => { setMenuOpen(false) }, [view])
 
   const flashSaving = () => { setSaving(true); setTimeout(() => setSaving(false), 900) }
@@ -69,6 +85,7 @@ export default function App() {
   const openSettings = ()     => { setView('settings') }
   const goList       = ()     => { setView('list'); setSelectedId(null); setSelectedOpId(null); setForm(emptyLead()) }
   const goOperations = ()     => { setView('operations'); setSelectedId(null); setSelectedOpId(null) }
+  const goTasks      = ()     => { setView('tasks'); setSelectedId(null); setSelectedOpId(null) }
 
   const submitForm = async () => {
     if (!form.phone.trim()) { alert('O telefone/WhatsApp é obrigatório.'); return }
@@ -140,6 +157,7 @@ export default function App() {
 
   const isCommercialView = view === 'list' || view === 'detail' || view === 'form'
   const isOperationsView = view === 'operations' || view === 'operation-detail'
+  const isTasksView      = view === 'tasks'
 
   const pageTitleMap = {
     list:             'Funil Comercial',
@@ -148,9 +166,15 @@ export default function App() {
     settings:         'Configurações',
     operations:       'Funil Operacional',
     'operation-detail': selectedOp?.lead_name || 'Operação',
+    tasks:            'Tarefas',
   }
   const pageTitle = pageTitleMap[view] || ''
   const showBack  = view === 'form' || view === 'detail' || view === 'settings' || view === 'operation-detail'
+
+  const openLeadById = (leadId) => {
+    const lead = leads.find(l => l.id === leadId)
+    if (lead) openDetail(lead)
+  }
 
   const handleBack = () => {
     if (view === 'operation-detail') { setView('operations'); setSelectedOpId(null) }
@@ -159,9 +183,25 @@ export default function App() {
   }
 
   // ── Nav items ─────────────────────────────────────────────────────────────
+  const todayStr      = new Date().toISOString().slice(0, 10)
+  const pendingTasks  = tasks.filter(t => t.status !== 'done')
+  const activeLeadsForOrphan = leads.filter(l => !l.isLost && l.status !== 'Contrato Assinado')
+  const leadsWithTask = new Set(pendingTasks.map(t => t.lead_id))
+
+  const nowTime = new Date().toTimeString().slice(0, 5)
+  const isLateTask = (t) =>
+    t.dueDate && (t.dueDate < todayStr || (t.dueDate === todayStr && t.dueTime && t.dueTime <= nowTime))
+
+  const taskBadges = {
+    late:   pendingTasks.filter(isLateTask).length,
+    orphan: activeLeadsForOrphan.filter(l => !leadsWithTask.has(l.id)).length,
+    today:  pendingTasks.filter(t => t.dueDate === todayStr && !isLateTask(t)).length,
+  }
+
   const navItems = [
     { icon: 'ti-briefcase',  label: 'Funil Comercial',    action: goList,       active: isCommercialView },
     { icon: 'ti-settings-2', label: 'Funil Operacional',  action: goOperations, active: isOperationsView },
+    { icon: 'ti-checkbox',   label: 'Tarefas',            action: goTasks,      active: isTasksView, taskBadges },
     { icon: 'ti-plus',       label: 'Novo Lead',          action: openNew,      active: false },
     { icon: 'ti-settings',   label: 'Configurações',      action: openSettings, active: view === 'settings' },
   ]
@@ -201,6 +241,13 @@ export default function App() {
                 {operations.filter(o => o.status !== '12. Concluído' && !o.isLost).length}
               </span>
             )}
+            {item.taskBadges && (
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
+                {item.taskBadges.late   > 0 && <span style={{ fontSize: 10, background: '#DC2626', color: '#fff', borderRadius: 99, padding: '1px 6px', fontWeight: 700, lineHeight: 1.4 }}>{item.taskBadges.late}</span>}
+                {item.taskBadges.orphan > 0 && <span style={{ fontSize: 10, background: '#D97706', color: '#fff', borderRadius: 99, padding: '1px 6px', fontWeight: 700, lineHeight: 1.4 }}>{item.taskBadges.orphan}</span>}
+                {item.taskBadges.today  > 0 && <span style={{ fontSize: 10, background: '#1565C0', color: '#fff', borderRadius: 99, padding: '1px 6px', fontWeight: 700, lineHeight: 1.4 }}>{item.taskBadges.today}</span>}
+              </div>
+            )}
           </button>
         ))}
       </nav>
@@ -223,6 +270,7 @@ export default function App() {
   const mobileNavItems = [
     { icon: 'ti-briefcase',  label: 'Comercial',  action: goList,       active: isCommercialView },
     { icon: 'ti-settings-2', label: 'Operacional', action: goOperations, active: isOperationsView },
+    { icon: 'ti-checkbox',   label: 'Tarefas',     action: goTasks,      active: isTasksView },
     { icon: 'ti-plus',       label: 'Novo Lead',   action: openNew,      active: view === 'form' },
     { icon: 'ti-settings',   label: 'Config',      action: openSettings, active: view === 'settings' },
   ]
@@ -275,12 +323,29 @@ export default function App() {
             {saving && <span style={{ fontSize: 11, color: 'var(--color-text-hint)', flexShrink: 0 }}><i className="ti ti-check" style={{ fontSize: 12 }} /> Salvo</span>}
           </div>
 
-          {view === 'list' && (
-            <button onClick={openNew} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: isMobile ? '7px 12px' : '7px 16px', borderRadius: 'var(--radius-md)', background: 'var(--color-blue-mid)', color: '#fff', border: 'none', fontWeight: 500, fontSize: 13, flexShrink: 0, cursor: 'pointer' }}>
-              <i className="ti ti-plus" style={{ fontSize: 16 }} aria-hidden="true" />
-              {isMobile ? 'Novo' : 'Novo Lead'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {/* TESTE — remover depois */}
+            {['soon', 'now', 'allday', 'late_notime'].map(kind => (
+              <button key={kind} onClick={() => triggerTest(kind)} style={{ fontSize: 10, padding: '3px 7px', borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5', cursor: 'pointer', color: '#666' }}>
+                {kind}
+              </button>
+            ))}
+            <button onClick={resetFired} style={{ fontSize: 10, padding: '3px 7px', borderRadius: 6, border: '1px solid #f99', background: '#fff0f0', cursor: 'pointer', color: '#c00' }}>
+              reset
             </button>
-          )}
+            <NotificationBell
+              notifications={notifications}
+              unreadCount={unreadCount}
+              onClear={clearNotifications}
+              onOpenLead={openLeadById}
+            />
+            {view === 'list' && (
+              <button onClick={openNew} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: isMobile ? '7px 12px' : '7px 16px', borderRadius: 'var(--radius-md)', background: 'var(--color-blue-mid)', color: '#fff', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>
+                <i className="ti ti-plus" style={{ fontSize: 16 }} aria-hidden="true" />
+                {isMobile ? 'Novo' : 'Novo Lead'}
+              </button>
+            )}
+          </div>
         </header>
 
         {/* Content */}
@@ -295,7 +360,7 @@ export default function App() {
             )}
 
             {view === 'list' && (
-              <LeadList leads={leads} onSelect={openDetail} onNew={openNew} />
+              <LeadList leads={leads} tasks={tasks} onSelect={openDetail} onNew={openNew} />
             )}
 
             {view === 'form' && (
@@ -311,6 +376,7 @@ export default function App() {
                 onStatusChange={changeStatus}
                 onOpenOperation={openOperation}
                 onRefresh={refresh}
+                onTaskEdited={clearFiredForTask}
               />
             )}
 
@@ -320,6 +386,10 @@ export default function App() {
 
             {view === 'operations' && (
               <OperationList operations={operations} onSelect={openOperation} />
+            )}
+
+            {view === 'tasks' && settings && (
+              <TaskList leads={leads} onOpenLead={openDetail} settings={settings} onTaskChanged={refresh} onTaskEdited={clearFiredForTask} />
             )}
 
             {view === 'operation-detail' && selectedOp && settings && (
@@ -352,6 +422,13 @@ export default function App() {
           </nav>
         )}
       </main>
+
+      {/* Toasts de notificação */}
+      <NotificationToasts
+        toasts={toasts}
+        onDismiss={dismissToast}
+        onOpenLead={openLeadById}
+      />
     </div>
   )
 }

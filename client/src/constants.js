@@ -11,7 +11,7 @@ export const DEFAULT_BANKS = [
 export const BANK_CONTRACT_TYPES = [
   'Financiamento de Veículo',
   'Empréstimo Pessoal',
-  'Consignado',
+  'Empréstimo Consignado',
   'Cartão de Crédito',
   'Outro',
 ]
@@ -58,6 +58,14 @@ export const LOSS_REASONS = [
   'Sem Valores',
   'Sem Contato',
   'Desistiu',
+]
+
+export const DEFAULT_TASK_TYPES = [
+  'Ligação',
+  'WhatsApp / Follow-up',
+  'Reunião',
+  'Envio de documento',
+  'Outro',
 ]
 
 export const COMMERCIAL_STATUS_META = {
