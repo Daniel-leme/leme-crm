@@ -72,7 +72,7 @@ export default function App() {
   }, [])
 
   // Central de notificações
-  const { notifications, unreadCount, toasts, dismissToast, clearNotifications, triggerTest, resetFired, clearFiredForTask } = useNotifications(tasks)
+  const { notifications, unreadCount, toasts, dismissToast, clearNotifications, clearFiredForTask } = useNotifications(tasks)
 
   useEffect(() => { setMenuOpen(false) }, [view])
 
@@ -183,7 +183,7 @@ export default function App() {
   }
 
   // ── Nav items ─────────────────────────────────────────────────────────────
-  const todayStr      = new Date().toISOString().slice(0, 10)
+  const todayStr      = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
   const pendingTasks  = tasks.filter(t => t.status !== 'done')
   const activeLeadsForOrphan = leads.filter(l => !l.isLost && l.status !== 'Contrato Assinado')
   const leadsWithTask = new Set(pendingTasks.map(t => t.lead_id))
@@ -324,15 +324,6 @@ export default function App() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            {/* TESTE — remover depois */}
-            {['soon', 'now', 'allday', 'late_notime'].map(kind => (
-              <button key={kind} onClick={() => triggerTest(kind)} style={{ fontSize: 10, padding: '3px 7px', borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5', cursor: 'pointer', color: '#666' }}>
-                {kind}
-              </button>
-            ))}
-            <button onClick={resetFired} style={{ fontSize: 10, padding: '3px 7px', borderRadius: 6, border: '1px solid #f99', background: '#fff0f0', cursor: 'pointer', color: '#c00' }}>
-              reset
-            </button>
             <NotificationBell
               notifications={notifications}
               unreadCount={unreadCount}

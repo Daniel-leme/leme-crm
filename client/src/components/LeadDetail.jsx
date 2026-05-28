@@ -768,7 +768,7 @@ const TASK_TYPE_ICONS = {
   'Outro':                 'ti-checkbox',
 }
 
-function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, refreshToken }) {
+function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, onTaskEdited, refreshToken }) {
   const responsibles = settings?.responsibles ? JSON.parse(settings.responsibles) : ['Riquelme', 'Daniel']
   const taskTypes    = settings?.taskTypes    ? JSON.parse(settings.taskTypes)    : null
   const [tasks,        setTasks]        = useState([])
@@ -779,6 +779,7 @@ function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, ref
   const [reagendModal, setReagendModal] = useState(null)  // { task, prefillType, prefillDesc }
   const [reviewModal,  setReviewModal]  = useState(null)  // contrato a revisar
   const [reviewTask,   setReviewTask]   = useState(null)  // task original que abriu o reviewModal
+  const [showDone,     setShowDone]     = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -895,85 +896,166 @@ function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, ref
     onTaskCreated?.()
   }
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
+  const now   = new Date().toTimeString().slice(0, 5)
+
   const pending = tasks.filter(t => t.status !== 'done')
   const done    = tasks.filter(t => t.status === 'done')
 
+  // Classifica cada tarefa pendente
+  function classifyTask(t) {
+    if (!t.dueDate || t.dueDate < today) return 'late'
+    if (t.dueDate === today) {
+      if (t.dueTime && t.dueTime <= now) return 'late'
+      return 'today'
+    }
+    return 'future'
+  }
+
+  const TASK_COL = {
+    late:   { color: '#C62828', bg: '#FFF5F5', border: '#FECACA', label: 'Atrasada', icon: 'ti-alarm' },
+    today:  { color: '#15803D', bg: '#F0FDF4', border: '#86EFAC', label: 'Hoje',     icon: 'ti-flag-filled' },
+    future: { color: '#1565C0', bg: '#EFF6FF', border: '#BFDBFE', label: 'Futura',   icon: 'ti-calendar-time' },
+  }
+
+  const sorted = [...pending].sort((a, b) => {
+    const order = { late: 0, today: 1, future: 2 }
+    const ca = classifyTask(a), cb = classifyTask(b)
+    if (order[ca] !== order[cb]) return order[ca] - order[cb]
+    if (!a.dueDate && !b.dueDate) return 0
+    if (!a.dueDate) return 1
+    if (!b.dueDate) return -1
+    const cmp = a.dueDate.localeCompare(b.dueDate)
+    if (cmp !== 0) return cmp
+    if (!a.dueTime) return 1
+    if (!b.dueTime) return -1
+    return a.dueTime.localeCompare(b.dueTime)
+  })
+
   return (
+    <>
     <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)', padding: '18px 20px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <i className="ti ti-checkbox" style={{ fontSize: 18, color: 'var(--color-blue-mid)' }} />
-          <span style={{ fontSize: 14, fontWeight: 600 }}>Tarefas</span>
-          {pending.length > 0 && (
-            <span style={{ fontSize: 12, background: 'var(--color-blue-bg)', color: 'var(--color-blue-dark)', padding: '2px 8px', borderRadius: 99, fontWeight: 600 }}>
-              {pending.length}
-            </span>
-          )}
-        </div>
-        <button
-          onClick={() => setNewModal(true)}
-          style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', cursor: 'pointer', fontWeight: 500 }}
-        >
-          <i className="ti ti-plus" style={{ fontSize: 13 }} /> Nova tarefa
-        </button>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: pending.length > 0 ? 14 : 0 }}>
+        <i className="ti ti-checkbox" style={{ fontSize: 16, color: 'var(--color-blue-mid)' }} />
+        <span style={{ fontSize: 14, fontWeight: 600 }}>Tarefas</span>
+        {pending.length > 0 && (
+          <span style={{ fontSize: 11, background: 'var(--color-blue-bg)', color: 'var(--color-blue-dark)', padding: '2px 8px', borderRadius: 99, fontWeight: 600 }}>
+            {pending.length} pendente{pending.length !== 1 ? 's' : ''}
+          </span>
+        )}
       </div>
 
       {loading ? (
         <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-hint)', textAlign: 'center', padding: '12px 0' }}>Carregando…</p>
       ) : pending.length === 0 && done.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--color-text-hint)' }}>
-          <i className="ti ti-checkbox" style={{ fontSize: 28, display: 'block', marginBottom: 6 }} />
-          <p style={{ margin: 0, fontSize: 13 }}>Nenhuma tarefa. Crie uma para não esquecer este lead.</p>
+          <i className="ti ti-circle-check" style={{ fontSize: 28, display: 'block', marginBottom: 6 }} />
+          <p style={{ margin: 0, fontSize: 13 }}>Nenhuma tarefa pendente.</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {pending.map(task => {
-            const isLate = task.dueDate && task.dueDate < today
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {sorted.map(task => {
+            const col  = TASK_COL[classifyTask(task)]
             const icon = TASK_TYPE_ICONS[task.type] || 'ti-checkbox'
+            const isAuto = !!(task.isAuto && task.contract_id)
+            const dateStr = task.dueDate ? task.dueDate.split('-').reverse().join('/') + (task.dueTime && task.dueTime !== '0' ? ` às ${task.dueTime}` : '') : null
             return (
-              <div key={task.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderRadius: 'var(--radius-lg)', border: `1px solid ${isLate ? '#FECACA' : 'var(--color-border)'}`, background: isLate ? '#FFF5F5' : 'var(--color-bg)' }}>
-                <button onClick={() => handleDone(task)} style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isLate ? '#EF4444' : 'var(--color-border)'}`, background: 'transparent', cursor: 'pointer', flexShrink: 0, marginTop: 2 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                    <i className={`ti ${icon}`} style={{ fontSize: 12, color: isLate ? '#C62828' : 'var(--color-blue-mid)' }} />
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>{task.type}</span>
-                    {!!task.isAuto && !!task.contract_id && (
-                      <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: '#EDE9FE', color: '#7C3AED', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
-                        <i className="ti ti-file-description" style={{ fontSize: 10 }} />
-                        {task.contract_bank || 'Contrato'}{task.contract_type ? ` · ${task.contract_type}` : ''}
-                      </span>
-                    )}
+              <div key={task.id} style={{ borderRadius: 'var(--radius-lg)', border: `1px solid ${col.border}`, background: col.bg, overflow: 'hidden' }}>
+                {/* Linha colorida topo */}
+                <div style={{ height: 3, background: col.color, opacity: 0.5 }} />
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px' }}>
+                  {/* Botão concluir */}
+                  <button
+                    onClick={() => handleDone(task)}
+                    title="Concluir"
+                    style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${col.color}`, background: 'transparent', cursor: 'pointer', flexShrink: 0, marginTop: 1, opacity: 0.7, transition: 'opacity 0.15s' }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                    onMouseLeave={e => e.currentTarget.style.opacity = 0.7}
+                  />
+                  {/* Conteúdo */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                      <i className={`ti ${icon}`} style={{ fontSize: 12, color: col.color }} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)' }}>{task.type}</span>
+                      {isAuto && (
+                        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: '#EDE9FE', color: '#7C3AED', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
+                          <i className="ti ti-file-description" style={{ fontSize: 10 }} />
+                          {task.contract_bank || 'Contrato'}{task.contract_type ? ` · ${task.contract_type}` : ''}
+                        </span>
+                      )}
+                    </div>
+                    {task.description && <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>{task.description}</p>}
+                    <div style={{ display: 'flex', gap: 10, marginTop: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {dateStr && (
+                        <span style={{ fontSize: 11, color: col.color, display: 'flex', alignItems: 'center', gap: 3, fontWeight: 500 }}>
+                          <i className={`ti ${col.icon}`} style={{ fontSize: 11 }} />{dateStr}
+                        </span>
+                      )}
+                      {task.assignedTo && (
+                        <span style={{ fontSize: 11, color: 'var(--color-text-hint)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                          <i className="ti ti-user" style={{ fontSize: 11 }} />{task.assignedTo}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  {task.description ? <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-secondary)' }}>{task.description}</p> : null}
-                  <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-                    {task.dueDate && (
-                      <span style={{ fontSize: 11, color: isLate ? '#C62828' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                        <i className="ti ti-calendar" style={{ fontSize: 11 }} />
-                        {task.dueDate.split('-').reverse().join('/')}{task.dueTime && task.dueTime !== '0' ? ` às ${task.dueTime}` : ''}
-                        {isLate ? ' — ATRASADA' : ''}
-                      </span>
-                    )}
-                    {task.assignedTo && (
-                      <span style={{ fontSize: 11, color: 'var(--color-text-hint)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                        <i className="ti ti-user" style={{ fontSize: 11 }} />{task.assignedTo}
-                      </span>
-                    )}
+                  {/* Ações */}
+                  <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                    <button onClick={() => setEditTask(task)} title="Editar" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 5px', color: 'var(--color-text-hint)', fontSize: 14, borderRadius: 6, transition: 'background 0.15s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,0,0,0.06)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                      <i className="ti ti-pencil" />
+                    </button>
+                    <button
+                      onClick={() => !isAuto && handleDelete(task)}
+                      title={isAuto ? 'Tarefa automática — não pode ser excluída' : 'Excluir'}
+                      style={{ background: 'none', border: 'none', padding: '4px 5px', fontSize: 14, borderRadius: 6, transition: 'background 0.15s',
+                        color: isAuto ? 'var(--color-text-hint)' : 'var(--color-text-hint)',
+                        opacity: isAuto ? 0.35 : 1,
+                        cursor: isAuto ? 'not-allowed' : 'pointer',
+                      }}
+                      onMouseEnter={e => { if (!isAuto) e.currentTarget.style.background = 'rgba(0,0,0,0.06)' }}
+                      onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                      <i className={isAuto ? 'ti ti-trash-off' : 'ti ti-trash'} />
+                    </button>
                   </div>
-                </div>
-                <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
-                  <button onClick={() => setEditTask(task)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, color: 'var(--color-text-hint)', fontSize: 14 }}><i className="ti ti-pencil" /></button>
-                  {!(task.isAuto && task.contract_id) && (
-                    <button onClick={() => handleDelete(task)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, color: 'var(--color-text-hint)', fontSize: 14 }}><i className="ti ti-trash" /></button>
-                  )}
                 </div>
               </div>
             )
           })}
+
+          {/* Histórico colapsável */}
           {done.length > 0 && (
-            <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--color-text-hint)' }}>
-              + {done.length} tarefa{done.length !== 1 ? 's' : ''} concluída{done.length !== 1 ? 's' : ''}
-            </p>
+            <div style={{ marginTop: 4 }}>
+              <button
+                onClick={() => setShowDone(v => !v)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 2px', color: 'var(--color-text-hint)', fontSize: 12, fontWeight: 500 }}
+              >
+                <i className={`ti ${showDone ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ fontSize: 13 }} />
+                {showDone ? 'Ocultar' : 'Ver'} histórico ({done.length} concluída{done.length !== 1 ? 's' : ''})
+              </button>
+              {showDone && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 6 }}>
+                  {[...done].reverse().map(task => {
+                    const icon = TASK_TYPE_ICONS[task.type] || 'ti-checkbox'
+                    const dateStr = task.dueDate ? task.dueDate.split('-').reverse().join('/') + (task.dueTime && task.dueTime !== '0' ? ` às ${task.dueTime}` : '') : null
+                    return (
+                      <div key={task.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', opacity: 0.7 }}>
+                        <i className="ti ti-circle-check" style={{ fontSize: 15, color: '#15803D', flexShrink: 0, marginTop: 1 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <i className={`ti ${icon}`} style={{ fontSize: 11, color: 'var(--color-text-hint)' }} />
+                            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', textDecoration: 'line-through' }}>{task.type}</span>
+                          </div>
+                          {task.description && <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-text-hint)' }}>{task.description}</p>}
+                          {dateStr && <span style={{ fontSize: 11, color: 'var(--color-text-hint)' }}>{dateStr}</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -984,6 +1066,30 @@ function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, ref
       {editTask && (
         <TaskModal open onClose={() => setEditTask(null)} onSave={handleEdit} lead={lead} responsibles={responsibles} taskTypes={taskTypes} editTask={editTask} contractMode={!!(editTask.isAuto && editTask.contract_id)} />
       )}
+    </div>
+
+    {/* Botão flutuante Nova Tarefa — oculto quando qualquer modal estiver aberto */}
+    {!newModal && !editTask && !resolveTask && !reagendModal && !reviewModal && <button
+      onClick={() => setNewModal(true)}
+      style={{
+        position: 'fixed', bottom: 28, right: 28, zIndex: 200,
+        display: 'flex', alignItems: 'center', gap: 7,
+        padding: '11px 20px',
+        borderRadius: 'var(--radius-full)',
+        background: 'var(--color-blue-mid)',
+        color: '#fff',
+        border: 'none',
+        fontSize: 13, fontWeight: 600,
+        boxShadow: '0 4px 16px rgba(14,74,120,0.35)',
+        cursor: 'pointer',
+        transition: 'transform 0.15s, box-shadow 0.15s',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(14,74,120,0.45)' }}
+      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(14,74,120,0.35)' }}
+    >
+      <i className="ti ti-plus" style={{ fontSize: 15 }} />
+      Nova Tarefa
+    </button>}
 
       {/* Diálogo de resolução de tarefa automática */}
       {resolveTask && (
@@ -1046,7 +1152,7 @@ function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, ref
           onClose={handleReviewClose}
         />
       )}
-    </div>
+    </>
   )
 }
 
@@ -1296,6 +1402,7 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
         settings={settings}
         refreshToken={taskRefreshToken}
         onTaskCreated={() => { bumpTaskRefresh(); onRefresh() }}
+        onTaskEdited={onTaskEdited}
         onContractUpdate={async (contractId, data) => {
           await apiUpdateContract(lead.id, contractId, data)
           bumpTaskRefresh()

@@ -4,7 +4,12 @@ const STORAGE_KEY = 'leme_notif_fired'
 const CHECK_INTERVAL = 60_000 // 1 minuto
 
 function todayStr() {
-  return new Date().toISOString().slice(0, 10)
+  // Usa hora local para não virar de dia às 21:00 no Brasil (UTC-3)
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 function nowHHMM() {
   return new Date().toTimeString().slice(0, 5)
@@ -102,14 +107,9 @@ function buildAlerts(tasks) {
   const now   = nowHHMM()
   const alerts = []
 
-  console.log('[notif] buildAlerts — hoje:', today, 'agora:', now, 'tasks:', tasks.length)
-
   for (const t of tasks) {
     if (t.status === 'done') continue
-    if (!t.dueDate || t.dueDate > today) {
-      if (t.dueDate && t.dueTime) console.log('[notif] skip futuro:', t.id, t.dueDate, t.dueTime)
-      continue
-    }
+    if (!t.dueDate || t.dueDate > today) continue
 
     if (!t.dueTime) {
       if (t.dueDate === today && now >= '07:00') {
@@ -120,13 +120,13 @@ function buildAlerts(tasks) {
       }
     } else {
       const mins = minutesUntil(t.dueDate, t.dueTime)
-      console.log('[notif] tarefa com hora:', t.id, t.dueDate, t.dueTime, '→ mins:', mins)
 
       if (mins >= 13 && mins <= 17) {
         alerts.push({ key: `at15|${t.id}|${t.dueDate}`, task: t, kind: 'soon' })
       }
 
-      if (mins <= 1 && mins >= -59) {
+      // Janela ampla para absorver atraso do setInterval em abas inativas
+      if (mins <= 2 && mins >= -62) {
         alerts.push({ key: `at00|${t.id}|${t.dueDate}`, task: t, kind: 'now' })
       }
 
@@ -135,7 +135,6 @@ function buildAlerts(tasks) {
       }
     }
   }
-  console.log('[notif] alerts gerados:', alerts.map(a => a.key))
   return alerts
 }
 
@@ -153,8 +152,9 @@ function alertMessage(alert) {
 export function useNotifications(tasks) {
   const [notifications, setNotifications] = useState([])   // histórico visível no sino
   const [toasts,        setToasts]        = useState([])   // toasts temporários na tela
-  const firedRef = useRef(loadFired())
-  const tasksRef = useRef(tasks)
+  const firedRef   = useRef(loadFired())
+  const tasksRef   = useRef(tasks)
+  const skipUntil  = useRef(0)   // timestamp — check disparado por tasks-change é ignorado antes deste momento
   tasksRef.current = tasks
 
   // Pede permissão push na montagem
@@ -174,10 +174,8 @@ export function useNotifications(tasks) {
     const newNotifs = []
     const newToasts = []
 
-    console.log('[notif] fired set:', [...fired])
-
     for (const alert of alerts) {
-      if (fired.has(alert.key)) { console.log('[notif] já disparado:', alert.key); continue }
+      if (fired.has(alert.key)) continue
       fired.add(alert.key)
 
       const msg = alertMessage(alert)
@@ -203,8 +201,9 @@ export function useNotifications(tasks) {
     }
   }, [])
 
-  // Verifica na montagem, quando tasks muda, e a cada minuto
+  // Verifica na montagem e quando tasks muda (exceto logo após edição — skipUntil protege)
   useEffect(() => {
+    if (Date.now() < skipUntil.current) return
     check()
   }, [tasks]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -242,11 +241,12 @@ export function useNotifications(tasks) {
     check()
   }, [check])
 
-  // Chama após editar/reagendar uma tarefa para limpar os disparos anteriores dela
+  // Chama após editar/reagendar uma tarefa: limpa disparos e bloqueia check imediato
   const clearFiredForTask = useCallback((taskId, dueDate) => {
     const keys = firedKeysForTask(taskId, dueDate)
     keys.forEach(k => firedRef.current.delete(k))
     saveFired(firedRef.current)
+    skipUntil.current = Date.now() + 10_000  // ignora o check disparado pelo re-render de tasks
   }, [])
 
   return { notifications, unreadCount, toasts, dismissToast, clearNotifications, check, triggerTest, resetFired, clearFiredForTask }
