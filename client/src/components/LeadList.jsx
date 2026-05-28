@@ -2,59 +2,98 @@ import { useState } from 'react'
 import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, fmtCurrency } from '../constants'
 import StatusBadge from './StatusBadge'
 
-function Initials({ name }) {
-  const letters = (name || '?').split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase() || '?'
-  return (
-    <div style={{
-      width: 38, height: 38, borderRadius: '50%',
-      background: 'var(--color-blue-bg)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 13, fontWeight: 600, color: 'var(--color-blue-dark)', flexShrink: 0,
-    }}>{letters}</div>
-  )
+
+const STATUS_SIDE_BG = {
+  'Novo Lead':         '#F1EFE8',
+  'Qualificação':      '#FFF8E1',
+  'Qualificado':       '#EFF6FF',
+  'Revisão':           '#F5F3FF',
+  'Negociação':        '#FFF0E6',
+  'Contrato Assinado': '#D4EDDA',
+  'Perdido':           '#FEE2E2',
 }
 
 function LeadRow({ lead, onSelect }) {
-  const emb  = parseFloat(lead.embeddedValue) || 0
-  const lost = !!lead.isLost
+  const emb       = parseFloat(lead.embeddedValue) || 0
+  const leme      = emb * ((lead.feePercent ?? 50) / 100)
+  const lost      = !!lead.isLost
+  const statusKey = lost ? 'Perdido' : lead.status
+  const meta      = COMMERCIAL_STATUS_META[statusKey] || COMMERCIAL_STATUS_META['Novo Lead']
+  const sideBg    = STATUS_SIDE_BG[statusKey] || '#F1EFE8'
+  const hasValues = emb > 0
+
   return (
     <div
       onClick={() => onSelect(lead)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        padding: '12px 16px', borderRadius: 'var(--radius-lg)',
-        border: `1px solid ${lost ? 'var(--color-red-border, #f5c6cb)' : 'var(--color-border)'}`,
-        background: lost ? 'var(--color-red-bg)' : 'var(--color-surface)',
-        cursor: 'pointer', transition: 'border-color 0.15s, box-shadow 0.15s',
+        display: 'grid',
+        gridTemplateColumns: '1fr auto',
+        borderRadius: 12,
+        border: `1px solid ${lost ? '#f5c6cb' : 'var(--color-border)'}`,
+        background: 'var(--color-surface)',
+        cursor: 'pointer',
+        overflow: 'hidden',
         opacity: lost ? 0.75 : 1,
+        transition: 'box-shadow 0.15s, border-color 0.15s',
       }}
-      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)' }}
-      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none' }}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)'; e.currentTarget.style.borderColor = meta.color + '66' }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = lost ? '#f5c6cb' : 'var(--color-border)' }}
     >
-      <Initials name={lead.name} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ margin: 0, fontWeight: 500, fontSize: 14 }}>{lead.name || '(sem nome)'}</p>
-        <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 1 }}>
-          {lead.phone || '—'}
-          {lead.bank ? ` · ${lead.bank}` : ''}
-          {lead.responsible ? ` · ${lead.responsible}` : ''}
-        </p>
-        {lost && lead.lossReason && (
-          <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-red-dark)', fontWeight: 500 }}>
-            <i className="ti ti-circle-x" style={{ fontSize: 11, marginRight: 3 }} />
-            Perdido — {lead.lossReason}
+      {/* ── Coluna esquerda: identidade ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px' }}>
+        {/* Avatar com cor do status */}
+        <div style={{
+          width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
+          background: meta.bg, border: `2px solid ${meta.color}33`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 13, fontWeight: 700, color: meta.color,
+        }}>
+          {(lead.name || '?').split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase() || '?'}
+        </div>
+
+        <div style={{ minWidth: 0 }}>
+          <p style={{ margin: 0, fontWeight: 600, fontSize: 14, lineHeight: 1.3 }}>{lead.name || '(sem nome)'}</p>
+          <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--color-text-hint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {[lead.phone, lead.bank, lead.responsible].filter(Boolean).join(' · ') || '—'}
           </p>
-        )}
+          {lost && lead.lossReason && (
+            <p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--color-red-dark)', fontWeight: 500 }}>
+              Perdido · {lead.lossReason}
+            </p>
+          )}
+        </div>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-        <StatusBadge status={lost ? 'Perdido' : lead.status} size="sm" />
-        {emb > 0 && (
-          <span style={{ fontSize: 11, color: 'var(--color-green-dark)', fontWeight: 500 }}>
-            {fmtCurrency(emb)}
+
+      {/* ── Coluna direita: status + potencial ── */}
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center',
+        padding: '13px 16px', gap: 6,
+        borderLeft: `1px solid ${meta.color}22`,
+        background: sideBg,
+        width: 170, flexShrink: 0,
+      }}>
+        {/* Status */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <i className={`ti ${meta.icon}`} style={{ fontSize: 13, color: meta.color }} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: meta.color, whiteSpace: 'nowrap' }}>
+            {statusKey}
           </span>
+        </div>
+
+        {/* Potencial */}
+        {hasValues ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+            <span style={{ fontSize: 17, fontWeight: 800, color: '#15803D', lineHeight: 1 }}>
+              {fmtCurrency(leme)}
+            </span>
+            <span style={{ fontSize: 10, color: 'var(--color-text-hint)', whiteSpace: 'nowrap' }}>
+              embutido {fmtCurrency(emb)}
+            </span>
+          </div>
+        ) : (
+          <span style={{ fontSize: 11, color: 'var(--color-text-hint)' }}>sem valores</span>
         )}
       </div>
-      <i className="ti ti-chevron-right" style={{ fontSize: 15, color: 'var(--color-text-hint)', flexShrink: 0 }} aria-hidden="true" />
     </div>
   )
 }
@@ -174,29 +213,39 @@ export default function LeadList({ leads, onSelect, onNew }) {
 
   const showingLosses = filterStatus === 'Perdas'
 
-  const applyFilters = (list) => list.filter(l => {
+  const STATUS_ORDER = COMMERCIAL_STATUSES.reduce((acc, s, i) => ({ ...acc, [s]: i }), {})
+
+  const applyFilters = (list) => {
+    const filtered = list.filter(l => {
+      if (filterStatus === 'Todos' && l.status === 'Contrato Assinado') return false
     const q = search.toLowerCase()
     const matchSearch =
       (l.name || '').toLowerCase().includes(q) ||
       (l.phone || '').includes(q) ||
       (l.cpf || '').includes(q) ||
       (l.bank || '').toLowerCase().includes(q)
-    const matchStatus = (filterStatus === 'Todos' || showingLosses) ? true : l.status === filterStatus
-    const matchResp   = filterResp === 'Todos' || l.responsible === filterResp
-    return matchSearch && matchStatus && matchResp
-  })
+      const matchStatus = (filterStatus === 'Todos' || showingLosses) ? true : l.status === filterStatus
+      const matchResp   = filterResp === 'Todos' || l.responsible === filterResp
+      return matchSearch && matchStatus && matchResp
+    })
+    if (filterStatus === 'Todos') {
+      filtered.sort((a, b) => (STATUS_ORDER[b.status] ?? 0) - (STATUS_ORDER[a.status] ?? 0))
+    }
+    return filtered
+  }
 
   const filteredActive = showingLosses ? [] : applyFilters(activeLeads)
   const filteredLost   = showingLosses ? applyFilters(lostLeads) : []
 
   // Métricas — baseadas em leads ativos (não perdidos)
-  const totalEmbedded = activeLeads.reduce((s, l) => s + (parseFloat(l.embeddedValue) || 0), 0)
-  const totalLeme     = activeLeads.reduce((s, l) => {
+  const funnelLeads   = activeLeads.filter(l => l.status !== 'Contrato Assinado')
+  const concluded     = activeLeads.filter(l => l.status === 'Contrato Assinado').length
+  const inNegotiation = activeLeads.filter(l => l.status === 'Negociação').length
+  const totalEmbedded = funnelLeads.reduce((s, l) => s + (parseFloat(l.embeddedValue) || 0), 0)
+  const totalLeme     = funnelLeads.reduce((s, l) => {
     const emb = parseFloat(l.embeddedValue) || 0
     return s + emb * ((l.feePercent ?? 50) / 100)
   }, 0)
-  const concluded = activeLeads.filter(l => l.status === '5. Contrato Assinado').length
-  const active    = activeLeads.filter(l => l.status !== '5. Contrato Assinado').length
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -204,9 +253,9 @@ export default function LeadList({ leads, onSelect, onNew }) {
       {/* ── Cards de métricas ────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
         {[
-          { label: 'Total de leads',       value: activeLeads.length,          icon: 'ti-users',    bg: '#F1EFE8',                    color: '#2C2C2A' },
-          { label: 'Em negociação',        value: active,                      icon: 'ti-loader',   bg: 'var(--color-blue-bg)',        color: 'var(--color-blue-dark)' },
-          { label: 'Contrato assinado',    value: concluded,                   icon: 'ti-trophy',   bg: 'var(--color-green-bg)',       color: 'var(--color-green-dark)' },
+          { label: 'Total no funil',        value: funnelLeads.length,          icon: 'ti-users',    bg: '#F1EFE8',                    color: '#2C2C2A' },
+          { label: 'Em negociação',        value: inNegotiation,               icon: 'ti-messages', bg: '#FFF0E6',                    color: '#C05B00' },
+          { label: 'Contrato assinado',    value: concluded,                   icon: 'ti-file-check',bg: '#D4EDDA',                   color: '#155724' },
           { label: 'Valor embutido',       value: fmtCurrency(totalEmbedded),  icon: 'ti-coin',     bg: '#FFF3CD',                    color: '#7A4F00' },
           { label: 'Estimado Leme',        value: fmtCurrency(totalLeme),      icon: 'ti-cash',     bg: 'var(--color-green-bg)',       color: 'var(--color-green-dark)' },
         ].map(m => (

@@ -322,7 +322,7 @@ export default function OperationDetail({ operation, settings, onStatusChange, o
           currentStatus={operation.status}
           isLost={isLost}
           onSelect={handleStepClick}
-          extraStep={operation.status !== '11. Concluído' ? 'Perdido' : null}
+          extraStep={operation.status !== 'Concluído' ? 'Perdido' : null}
         />
       </div>
 

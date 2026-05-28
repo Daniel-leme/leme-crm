@@ -35,22 +35,34 @@ const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2
 
 // Mapeamento de status antigos para novos (funil comercial)
 const STATUS_MIGRATION_MAP = {
-  '0. Qualificação':         '1. Qualificação',
-  '1. Qualificado':          '2. Qualificado',
-  '2.0. Envio do contrato':  '3. Revisão',
-  '2.1. Assistência 2ª via': '3. Revisão',
-  '3.0. Negociação/contrato':'4. Negociação',
-  '5. Solicitar estorno':    '5. Contrato Assinado',
-  '6. Aguardando estorno':   '5. Contrato Assinado',
-  '7. Concluído':            '5. Contrato Assinado',
+  '0. Qualificação':         'Qualificação',
+  '1. Qualificado':          'Qualificado',
+  '0. Novo Lead':            'Novo Lead',
+  '1. Qualificação':         'Qualificação',
+  '2. Qualificado':          'Qualificado',
+  '3. Revisão':              'Revisão',
+  '4. Negociação':           'Negociação',
+  '5. Contrato Assinado':    'Contrato Assinado',
+  '2.0. Envio do contrato':  'Revisão',
+  '2.1. Assistência 2ª via': 'Revisão',
+  '3.0. Negociação/contrato':'Negociação',
+  '5. Solicitar estorno':    'Contrato Assinado',
+  '6. Aguardando estorno':   'Contrato Assinado',
+  '7. Concluído':            'Contrato Assinado',
   'Cancelado':               'Perdido',
 }
 
 // Status antigo → status da operação correspondente
 const OPERATION_STATUS_MAP = {
-  '5. Solicitar estorno':    '7. Solicitação de Estorno',
-  '6. Aguardando estorno':   '8. Aguardando Estorno',
-  '7. Concluído':            '11. Concluído',
+  '5. Solicitar estorno':          'Solicitação de Estorno',
+  '6. Aguardando estorno':         'Aguardando Estorno',
+  '7. Concluído':                  'Concluído',
+  '6. Documentação':               'Documentação',
+  '7. Solicitação de Estorno':     'Solicitação de Estorno',
+  '8. Aguardando Estorno':         'Aguardando Estorno',
+  '9. Cobrança':                   'Cobrança',
+  '10. Transferência de Repasses': 'Transferência de Repasses',
+  '11. Concluído':                 'Concluído',
 }
 
 async function initDb() {
@@ -69,7 +81,7 @@ async function initDb() {
       contractType    TEXT,
       contractNumber  TEXT,
       source          TEXT,
-      status          TEXT DEFAULT '1. Qualificação',
+      status          TEXT DEFAULT 'Novo Lead',
       feePercent      INTEGER DEFAULT 50,
       embeddedValue   REAL DEFAULT 0,
       productsCount   INTEGER DEFAULT 0,
@@ -100,7 +112,7 @@ async function initDb() {
   // Migrar leads com status='Perdido' (modelo antigo) para isLost=1 + restaurar lastActiveStatus como status
   const oldLostLeads = await all(db, `SELECT * FROM leads WHERE status = 'Perdido'`)
   for (const lead of oldLostLeads) {
-    const restoreStatus = lead.lastActiveStatus || '1. Qualificação'
+    const restoreStatus = lead.lastActiveStatus || 'Qualificação'
     await run(db, `UPDATE leads SET status=?, isLost=1 WHERE id=?`, [restoreStatus, lead.id])
   }
 
@@ -109,7 +121,7 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS operations (
       id                TEXT PRIMARY KEY,
       lead_id           TEXT NOT NULL UNIQUE,
-      status            TEXT DEFAULT '6. Documentação',
+      status            TEXT DEFAULT 'Documentação',
       isLost            INTEGER DEFAULT 0,
       lossReason        TEXT DEFAULT '',
       lastActiveStatus  TEXT DEFAULT '',
@@ -136,11 +148,16 @@ async function initDb() {
     await run(db, `UPDATE leads SET status = ? WHERE status = ?`, [newStatus, oldStatus])
   }
 
+  // Migração de status antigos para novos no funil operacional
+  for (const [oldStatus, newStatus] of Object.entries(OPERATION_STATUS_MAP)) {
+    await run(db, `UPDATE operations SET status = ? WHERE status = ?`, [newStatus, oldStatus])
+  }
+
   // Migrar 'Cancelado' → 'Perdido' (caso tenha restado algum)
   await run(db, `UPDATE leads SET status = 'Perdido' WHERE status = 'Cancelado'`)
 
-  // Criar operações retroativas para leads em '5. Contrato Assinado' que não têm operação
-  const leadsWithContract = await all(db, `SELECT * FROM leads WHERE status = '5. Contrato Assinado'`)
+  // Criar operações retroativas para leads em 'Contrato Assinado' que não têm operação
+  const leadsWithContract = await all(db, `SELECT * FROM leads WHERE status = 'Contrato Assinado'`)
   const now = new Date().toISOString()
   for (const lead of leadsWithContract) {
     const existing = await get(db, `SELECT id FROM operations WHERE lead_id = ?`, [lead.id])
@@ -148,7 +165,7 @@ async function initDb() {
       await run(db, `
         INSERT INTO operations (id, lead_id, status, responsible, embeddedValue, feePercent, createdAt, updatedAt)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `, [genId(), lead.id, '6. Documentação', lead.responsible || '', parseFloat(lead.embeddedValue) || 0, lead.feePercent || 50, now, now])
+      `, [genId(), lead.id, 'Documentação', lead.responsible || '', parseFloat(lead.embeddedValue) || 0, lead.feePercent || 50, now, now])
     }
   }
 
@@ -239,7 +256,7 @@ app.post('/api/leads', async (req, res) => {
       l.phone||'', l.address||'', l.responsible||'',
       l.bank||'', l.contractType||'', l.contractNumber||'', l.source||'',
       l.adSource||'', l.adCampaign||'', l.adSet||'', l.adName||'',
-      l.status||'1. Qualificação', l.feePercent??50,
+      l.status||'Novo Lead', l.feePercent??50,
       parseFloat(l.embeddedValue)||0, parseInt(l.productsCount)||0,
       l.notes||'', l.contractFile||null, l.contractName||'', l.nextContact||'',
       l.lossReason||'', l.lastActiveStatus||'',
@@ -273,7 +290,7 @@ app.put('/api/leads/:id', async (req, res) => {
     }
 
     // status só muda se não estiver sendo marcado como perdido
-    // e não pode marcar perda no status '5. Contrato Assinado' pelo funil comercial
+    // e não pode marcar perda no status 'Contrato Assinado' pelo funil comercial
     const newStatus = l.status ?? ex.status
     const newEmbedded   = parseFloat(l.embeddedValue ?? ex.embeddedValue) || 0
     const newFeePercent = l.feePercent ?? ex.feePercent
@@ -306,8 +323,8 @@ app.put('/api/leads/:id', async (req, res) => {
       UPDATE operations SET embeddedValue=?, feePercent=?, updatedAt=? WHERE lead_id=?
     `, [newEmbedded, newFeePercent, now, req.params.id])
 
-    // Trigger: se chegou em '5. Contrato Assinado', criar operação se não existir
-    if (newStatus === '5. Contrato Assinado') {
+    // Trigger: se chegou em 'Contrato Assinado', criar operação se não existir
+    if (newStatus === 'Contrato Assinado') {
       const existingOp = await get(db, `SELECT id FROM operations WHERE lead_id = ?`, [req.params.id])
       if (!existingOp) {
         const updatedLead = await get(db, 'SELECT * FROM leads WHERE id = ?', [req.params.id])
@@ -315,16 +332,16 @@ app.put('/api/leads/:id', async (req, res) => {
           INSERT INTO operations (id, lead_id, status, responsible, embeddedValue, feePercent, createdAt, updatedAt)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-          genId(), req.params.id, '6. Documentação',
+          genId(), req.params.id, 'Documentação',
           updatedLead.responsible || '', parseFloat(updatedLead.embeddedValue) || 0,
           updatedLead.feePercent || 50, now, now,
         ])
       }
     }
 
-    // Trigger: se saiu de '5. Contrato Assinado' para status anterior (movimento de volta),
+    // Trigger: se saiu de 'Contrato Assinado' para status anterior (movimento de volta),
     // deletar a operação vinculada — ela não deve mais existir
-    if (ex.status === '5. Contrato Assinado' && newStatus !== '5. Contrato Assinado' && !newIsLost) {
+    if (ex.status === 'Contrato Assinado' && newStatus !== 'Contrato Assinado' && !newIsLost) {
       await run(db, `DELETE FROM operations WHERE lead_id = ?`, [req.params.id])
     }
 
@@ -522,14 +539,8 @@ app.delete('/api/leads/:lead_id/contracts/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-// Primeiro contrato criado → avança lead para "1. Qualificação" se ainda em "0. Novo Lead"
-// Criar contrato enquanto lead está em Qualificação → avança para Qualificado
 async function autoAdvanceOnFirstContract(leadId, now) {
-  const lead = await get(db, `SELECT status FROM leads WHERE id=?`, [leadId])
-  if (!lead) return
-  if (lead.status === '1. Qualificação') {
-    await run(db, `UPDATE leads SET status='2. Qualificado', updatedAt=? WHERE id=?`, [now, leadId])
-  }
+  // avanço automático de Qualificação → Qualificado foi removido a pedido do usuário
 }
 
 // Atualizar contrato enquanto lead está em Qualificado e status vai para "Revisar contrato" → avança para Revisão
@@ -538,8 +549,8 @@ async function autoAdvanceLeadStatus(leadId, contractStatus, now) {
   if (!lead) return
   const cur = lead.status
   if (contractStatus === 'Revisar contrato') {
-    if (cur === '2. Qualificado') {
-      await run(db, `UPDATE leads SET status='3. Revisão', updatedAt=? WHERE id=?`, [now, leadId])
+    if (cur === 'Qualificado') {
+      await run(db, `UPDATE leads SET status='Revisão', updatedAt=? WHERE id=?`, [now, leadId])
     }
   }
 }

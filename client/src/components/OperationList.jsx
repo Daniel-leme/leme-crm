@@ -1,17 +1,14 @@
 import { useState } from 'react'
 import { OPERATIONAL_STATUSES, OPERATIONAL_STATUS_META, fmtCurrency } from '../constants'
-import StatusBadge from './StatusBadge'
 
-function Initials({ name }) {
-  const letters = (name || '?').split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase() || '?'
-  return (
-    <div style={{
-      width: 38, height: 38, borderRadius: '50%',
-      background: '#E3F2FD',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 13, fontWeight: 600, color: '#1565C0', flexShrink: 0,
-    }}>{letters}</div>
-  )
+const STATUS_SIDE_BG = {
+  'Documentação':              '#E3F2FD',
+  'Solicitação de Estorno':    '#FFF8E1',
+  'Aguardando Estorno':        '#FFF3E0',
+  'Cobrança':                  '#F3E5F5',
+  'Transferência de Repasses': '#C8E6C9',
+  'Concluído':                 '#A5D6A7',
+  'Perdido':                   '#FEE2E2',
 }
 
 export default function OperationList({ operations, onSelect }) {
@@ -38,10 +35,10 @@ export default function OperationList({ operations, onSelect }) {
   })
 
   // Métricas (apenas operações ativas)
-  const concluded    = activeOps.filter(o => o.status === '11. Concluído').length
+  const concluded    = activeOps.filter(o => o.status === 'Concluído').length
   const totalEmb     = activeOps.reduce((s, o) => s + (parseFloat(o.embeddedValue) || 0), 0)
   const totalReceived = operations
-    .filter(o => ['10. Transferência de Repasses', '11. Concluído'].includes(o.status))
+    .filter(o => ['Transferência de Repasses', 'Concluído'].includes(o.status))
     .reduce((s, o) => s + (parseFloat(o.repaymentValue) || 0), 0)
 
   return (
@@ -184,45 +181,81 @@ export default function OperationList({ operations, onSelect }) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {filtered.map(op => {
-            const emb  = parseFloat(op.embeddedValue) || 0
-            const lost = !!op.isLost
+            const emb      = parseFloat(op.embeddedValue) || 0
+            const repay    = parseFloat(op.repaymentValue) || 0
+            const lost     = !!op.isLost
+            const statusKey = lost ? 'Perdido' : op.status
+            const meta      = OPERATIONAL_STATUS_META[statusKey] || OPERATIONAL_STATUS_META['Documentação']
+            const sideBg    = STATUS_SIDE_BG[statusKey] || '#E3F2FD'
+            const initials  = (op.lead_name || '?').split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase() || '?'
+
             return (
               <div key={op.id} onClick={() => onSelect(op)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+                  display: 'grid', gridTemplateColumns: '1fr auto',
                   borderRadius: 'var(--radius-lg)',
-                  border: `1px solid ${lost ? 'var(--color-red-border, #f5c6cb)' : 'var(--color-border)'}`,
-                  background: lost ? 'var(--color-red-bg)' : 'var(--color-surface)',
-                  cursor: 'pointer', transition: 'border-color 0.15s, box-shadow 0.15s',
+                  border: '1px solid var(--color-border)',
+                  background: 'var(--color-surface)',
+                  overflow: 'hidden', cursor: 'pointer',
+                  transition: 'box-shadow 0.15s',
                   opacity: lost ? 0.75 : 1,
                 }}
-                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)' }}
+                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)' }}
                 onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none' }}
               >
-                <Initials name={op.lead_name} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontWeight: 500, fontSize: 14 }}>{op.lead_name || '(sem nome)'}</p>
-                  <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 1 }}>
-                    {op.lead_phone || '—'}
-                    {op.lead_bank ? ` · ${op.lead_bank}` : ''}
-                    {op.responsible ? ` · ${op.responsible}` : ''}
-                  </p>
-                  {lost && op.lossReason && (
-                    <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-red-dark)', fontWeight: 500 }}>
-                      <i className="ti ti-circle-x" style={{ fontSize: 11, marginRight: 3 }} />
-                      Perdido — {op.lossReason}
+                {/* Coluna esquerda — identidade */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px' }}>
+                  <div style={{
+                    width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
+                    background: meta.bg, border: `1.5px solid ${meta.color}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 13, fontWeight: 700, color: meta.color,
+                  }}>{initials}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {op.lead_name || '(sem nome)'}
                     </p>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {op.lead_phone || '—'}
+                      {op.lead_bank ? ` · ${op.lead_bank}` : ''}
+                      {op.responsible ? ` · ${op.responsible}` : ''}
+                    </p>
+                    {lost && op.lossReason && (
+                      <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-red-dark)', fontWeight: 500 }}>
+                        <i className="ti ti-circle-x" style={{ fontSize: 11, marginRight: 3 }} />
+                        Perdido — {op.lossReason}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Coluna direita — status + valor */}
+                <div style={{
+                  width: 170, display: 'flex', flexDirection: 'column',
+                  alignItems: 'flex-end', justifyContent: 'center',
+                  padding: '10px 14px', gap: 4,
+                  background: sideBg,
+                  borderLeft: `1px solid ${meta.color}22`,
+                }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+                    <i className={`ti ${meta.icon}`} style={{ fontSize: 12, color: meta.color }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: meta.color }}>{statusKey}</span>
+                  </span>
+                  {emb > 0 ? (
+                    <>
+                      <span style={{ fontSize: 17, fontWeight: 800, color: '#15803D', lineHeight: 1 }}>
+                        {fmtCurrency(emb)}
+                      </span>
+                      {repay > 0 && (
+                        <span style={{ fontSize: 11, color: 'var(--color-text-hint)', lineHeight: 1 }}>
+                          repasse {fmtCurrency(repay)}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span style={{ fontSize: 12, color: 'var(--color-text-hint)' }}>sem valores</span>
                   )}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-                  <StatusBadge status={lost ? 'Perdido' : op.status} size="sm" />
-                  {emb > 0 && (
-                    <span style={{ fontSize: 11, color: '#7A4F00', fontWeight: 500 }}>
-                      {fmtCurrency(emb)}
-                    </span>
-                  )}
-                </div>
-                <i className="ti ti-chevron-right" style={{ fontSize: 15, color: 'var(--color-text-hint)', flexShrink: 0 }} aria-hidden="true" />
               </div>
             )
           })}

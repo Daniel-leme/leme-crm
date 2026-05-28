@@ -1,7 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dir \"c:\\\\leme-crm\" /b)"
+      "Bash(dir \"c:\\\\leme-crm\" /b)",
+      "Bash(node -e \"const Database = require\\('better-sqlite3'\\); const db = new Database\\('leme-crm.db'\\); const count = db.prepare\\('SELECT COUNT\\(*\\) as n FROM leads'\\).get\\(\\); console.log\\('Leads atuais:', count.n\\);\")",
+      "Bash(sqlite3 --version)",
+      "Bash(python -c \"import sqlite3; conn = sqlite3.connect\\('server/leme-crm.db'\\); cur = conn.cursor\\(\\); cur.execute\\('SELECT COUNT\\(*\\) FROM leads'\\); print\\('Leads:', cur.fetchone\\(\\)[0]\\); conn.close\\(\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python seed_leads.py)",
+      "Bash(python seed_contracts.py)",
+      "Bash(curl -s http://localhost:3001/api/leads)",
+      "PowerShell(Get-Process -Name \"node\" -ErrorAction SilentlyContinue)"
     ]
   }
 }

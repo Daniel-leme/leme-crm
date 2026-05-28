@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS, BANK_CONTRACT_STATUSES, BANK_CONTRACT_STATUS_META, DEFAULT_BANKS, fmtDate, fmtCurrency } from '../constants'
+import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS, BANK_CONTRACT_STATUSES, BANK_CONTRACT_STATUS_META, DEFAULT_BANKS, fmtDate, fmtCurrency, fmtCpf } from '../constants'
 import StatusBadge from './StatusBadge'
 import { generateContractPDF } from '../utils/contractPdf'
-import { apiGetOperationByLead, apiListContracts, apiCreateContract, apiUpdateContract, apiDeleteContract } from '../utils/api'
+import { apiGetOperationByLead, apiListContracts, apiCreateContract, apiUpdateContract, apiDeleteContract, apiUpdateLead } from '../utils/api'
 import { ContractModal, ReviewModal } from './ContractModals'
 
 function InfoRow({ icon, label, value }) {
@@ -265,10 +265,13 @@ function ContractItem({ contract, banks, onUpdate, onDelete }) {
   const [editModal, setEditModal]     = useState(false)
   const [reviewModal, setReviewModal] = useState(false)
   const [showPdf, setShowPdf]         = useState(false)
+  const [showActionMenu, setShowActionMenu] = useState(false)
   const meta = BANK_CONTRACT_STATUS_META[contract.status] || BANK_CONTRACT_STATUS_META['Aguardando envio']
   const emb = parseFloat(contract.embeddedValue) || 0
   const products = parseInt(contract.productsCount) || 0
   const isReviewed = contract.status === 'Contrato revisado'
+
+  const ACTION_STATUSES = BANK_CONTRACT_STATUSES.slice(0, 3) // os 3 que não são "Contrato revisado"
 
   return (
     <>
@@ -287,21 +290,64 @@ function ContractItem({ contract, banks, onUpdate, onDelete }) {
           onClose={() => setReviewModal(false)}
         />
       )}
+      {showActionMenu && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => setShowActionMenu(false)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#fff', borderRadius: 14, padding: '18px 16px', width: '100%', maxWidth: 320,
+            boxShadow: '0 16px 48px rgba(0,0,0,0.22)', display: 'flex', flexDirection: 'column', gap: 8,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#EDE9FE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <i className="ti ti-bolt" style={{ fontSize: 14, color: '#7C3AED' }} />
+              </div>
+              <div>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>Ação do contrato</p>
+                <p style={{ margin: 0, fontSize: 11, color: 'var(--color-text-secondary)' }}>
+                  {contract.bank || '(banco não informado)'}{contract.type ? ` · ${contract.type}` : ''}
+                </p>
+              </div>
+            </div>
+            <p style={{ margin: 0, fontSize: 10, fontWeight: 600, color: 'var(--color-text-hint)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Mudar status para</p>
+            {ACTION_STATUSES.map(s => {
+              const m = BANK_CONTRACT_STATUS_META[s]
+              const isCurrent = contract.status === s
+              return (
+                <button key={s} onClick={() => { onUpdate({ status: s }); setShowActionMenu(false) }} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                  borderRadius: 9, border: `1.5px solid ${isCurrent ? m.color : 'var(--color-border)'}`,
+                  background: isCurrent ? m.bg : 'var(--color-bg)', cursor: 'pointer',
+                  fontSize: 12, color: isCurrent ? m.color : 'var(--color-text-primary)', fontWeight: isCurrent ? 600 : 400,
+                  textAlign: 'left', width: '100%',
+                }}>
+                  <i className={`ti ${m.icon}`} style={{ fontSize: 15, color: m.color, flexShrink: 0 }} />
+                  {s}
+                  {isCurrent && <i className="ti ti-check" style={{ fontSize: 12, marginLeft: 'auto', color: m.color }} />}
+                </button>
+              )
+            })}
+            {!isReviewed && (
+              <>
+                <div style={{ height: 1, background: 'var(--color-border)', margin: '4px 0' }} />
+                <p style={{ margin: 0, fontSize: 10, fontWeight: 600, color: 'var(--color-text-hint)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Ação</p>
+                <button onClick={() => { setReviewModal(true); setShowActionMenu(false) }} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 12px',
+                  borderRadius: 9, border: 'none', background: '#7C3AED',
+                  cursor: 'pointer', fontSize: 13, color: '#fff', fontWeight: 700, width: '100%',
+                }}>
+                  <i className="ti ti-file-search" style={{ fontSize: 15, flexShrink: 0 }} />
+                  Preencher revisão
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       <div style={{ border: `1px solid ${isReviewed ? '#BBF7D0' : 'var(--color-border)'}`, borderRadius: 'var(--radius-lg)', overflow: 'hidden', background: isReviewed ? '#F0FDF4' : 'var(--color-surface)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px' }}>
-          {/* Status inline — clica para ciclar nos 3 primeiros */}
-          <button
-            onClick={() => {
-              const allowed = BANK_CONTRACT_STATUSES.slice(0, 3)
-              const idx = allowed.indexOf(contract.status)
-              const next = allowed[(idx + 1) % allowed.length]
-              onUpdate({ status: next })
-            }}
-            title="Clique para mudar status"
-            style={{ width: 32, height: 32, borderRadius: '50%', background: meta.bg, border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: isReviewed ? 'default' : 'pointer' }}
-          >
+          <div style={{ width: 32, height: 32, borderRadius: '50%', background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <i className={`ti ${meta.icon}`} style={{ fontSize: 15, color: meta.color }} />
-          </button>
+          </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>
               {contract.bank || '(banco não informado)'}
@@ -321,11 +367,12 @@ function ContractItem({ contract, banks, onUpdate, onDelete }) {
                 <i className="ti ti-file-text" style={{ fontSize: 12 }} /> PDF
               </button>
             )}
-            {!isReviewed && (
-              <button onClick={() => setReviewModal(true)} style={{ fontSize: 11, padding: '4px 9px', borderRadius: 'var(--radius-md)', border: '1px solid #7C3AED', background: '#EDE9FE', cursor: 'pointer', color: '#7C3AED', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
-                <i className="ti ti-file-search" style={{ fontSize: 12 }} /> Revisar
-              </button>
-            )}
+            <button
+              onClick={() => setShowActionMenu(true)}
+              style={{ fontSize: 11, padding: '4px 9px', borderRadius: 'var(--radius-md)', border: '1px solid #7C3AED', background: '#EDE9FE', cursor: 'pointer', color: '#7C3AED', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}
+            >
+              <i className="ti ti-bolt" style={{ fontSize: 12 }} /> Ação
+            </button>
             <button onClick={() => setEditModal(true)} style={{ fontSize: 11, padding: '4px 8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', cursor: 'pointer', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: 3 }}>
               <i className="ti ti-edit" style={{ fontSize: 12 }} /> Editar
             </button>
@@ -609,9 +656,37 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
     ? JSON.parse(settings.lossReasons)
     : DEFAULT_LOSS_REASONS
 
-  const [previewContract, setPreviewContract] = useState(null)
-  const [operation, setOperation]             = useState(null)
-  const [showLossModal, setShowLossModal]     = useState(false)
+  const [previewContract, setPreviewContract]     = useState(null)
+  const [operation, setOperation]                 = useState(null)
+  const [showLossModal, setShowLossModal]         = useState(false)
+  const [contractDataModal, setContractDataModal] = useState(false)
+  const [contractDataForm, setContractDataForm]   = useState({})
+
+  const CONTRACT_REQUIRED = ['name', 'cpf', 'address']
+  const CONTRACT_OPTIONAL = ['rg', 'birthDate', 'email']
+  const CONTRACT_FIELD_LABELS = { name: 'Nome', cpf: 'CPF', address: 'Endereço' }
+  const hasAllContractData = CONTRACT_REQUIRED.every(f => !!lead[f])
+  const missingFields = CONTRACT_REQUIRED.filter(f => !lead[f]).map(f => CONTRACT_FIELD_LABELS[f] || f)
+
+  const openContractDataModal = () => {
+    setContractDataForm({
+      name:      lead.name      || '',
+      cpf:       lead.cpf       || '',
+      rg:        lead.rg        || '',
+      birthDate: lead.birthDate || '',
+      email:     lead.email     || '',
+      address:   lead.address   || '',
+      feePercent: lead.feePercent ?? 50,
+    })
+    setPreviewContract(null)
+    setContractDataModal(true)
+  }
+
+  const saveContractData = async () => {
+    await apiUpdateLead(lead.id, contractDataForm)
+    setContractDataModal(false)
+    onRefresh()
+  }
 
   useEffect(() => {
     apiGetOperationByLead(lead.id)
@@ -625,8 +700,8 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
   const emb  = parseFloat(lead.embeddedValue) || 0
   const leme = emb * ((lead.feePercent ?? 50) / 100)
 
-  const BLOCKED_STATUSES = ['2. Qualificado', '3. Revisão', '4. Negociação', '5. Contrato Assinado']
-  const BLOCKED_NEGOCIACAO = ['4. Negociação', '5. Contrato Assinado']
+  const BLOCKED_STATUSES = ['Qualificado', 'Revisão', 'Negociação', 'Contrato Assinado']
+  const BLOCKED_NEGOCIACAO = ['Negociação', 'Contrato Assinado']
 
   const handleStepClick = async (step, isLostStep) => {
     if (isLostStep) {
@@ -683,8 +758,8 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
     return v
   })()
 
-  const isNewLead = !lead.isLost && lead.status === '0. Novo Lead'
-  const hideAssessoria = !lead.isLost && ['0. Novo Lead', '1. Qualificação', '2. Qualificado', '3. Revisão'].includes(lead.status)
+  const isNewLead = !lead.isLost && lead.status === 'Novo Lead'
+  const hideAssessoria = !lead.isLost && ['Novo Lead', 'Qualificação', 'Qualificado', 'Revisão'].includes(lead.status)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -751,7 +826,7 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
         {/* Seletor de etapas — antes das infos */}
         <div style={{ marginBottom: 12 }}>
           {!!lead.isLost && (() => {
-            const lostFromOperational = lead.status === '5. Contrato Assinado'
+            const lostFromOperational = lead.status === 'Contrato Assinado'
             return (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 12px', background: 'var(--color-red-bg)', borderRadius: 8, border: '1px solid var(--color-red-border, #f5c6cb)' }}>
                 <i className="ti ti-circle-x" style={{ fontSize: 14, color: 'var(--color-red-dark)', flexShrink: 0 }} aria-hidden="true" />
@@ -775,7 +850,7 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
             currentStatus={lead.status}
             isLost={lead.isLost}
             onSelect={handleStepClick}
-            extraStep={lead.status !== '5. Contrato Assinado' ? 'Perdido' : null}
+            extraStep={lead.status !== 'Contrato Assinado' ? 'Perdido' : null}
           />
         </div>
 
@@ -816,29 +891,157 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
       {/* ── Contratos bancários ───────────────────────────────────────────── */}
       {!isNewLead && <BankContractsSection lead={lead} settings={settings} onRefreshLead={onRefresh} />}
 
+      {/* ── Popup dados do contrato ───────────────────────────────────────── */}
+      {contractDataModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => setContractDataModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: '24px 22px', maxWidth: 480, width: '100%', boxShadow: '0 16px 48px rgba(0,0,0,0.22)', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--color-blue-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <i className="ti ti-file-signature" style={{ fontSize: 17, color: 'var(--color-blue-dark)' }} />
+              </div>
+              <div>
+                <p style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Dados para contrato</p>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-secondary)' }}>Usados para gerar o PDF de assessoria</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>Nome completo <span style={{ color: 'var(--color-red-mid)' }}>*</span></label>
+                <input value={contractDataForm.name} onChange={e => setContractDataForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" style={{ fontSize: 13 }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>CPF <span style={{ color: 'var(--color-red-mid)' }}>*</span></label>
+                <input value={contractDataForm.cpf} onChange={e => setContractDataForm(f => ({ ...f, cpf: fmtCpf(e.target.value) }))} placeholder="000.000.000-00" inputMode="numeric" maxLength={14} style={{ fontSize: 13 }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>RG</label>
+                <input value={contractDataForm.rg} onChange={e => setContractDataForm(f => ({ ...f, rg: e.target.value }))} placeholder="00.000.000 SSP/UF" style={{ fontSize: 13 }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>Endereço completo <span style={{ color: 'var(--color-red-mid)' }}>*</span></label>
+                <input value={contractDataForm.address} onChange={e => setContractDataForm(f => ({ ...f, address: e.target.value }))} placeholder="Rua Caxias do Sul, 471, Centro, Palmeira das Missões - RS" style={{ fontSize: 13 }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>E-mail <span style={{ fontWeight: 400, color: 'var(--color-text-hint)', fontSize: 10 }}>— Autentique</span></label>
+                <input type="email" value={contractDataForm.email} onChange={e => setContractDataForm(f => ({ ...f, email: e.target.value }))} placeholder="cliente@email.com" style={{ fontSize: 13 }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>Data de nascimento</label>
+                <input type="date" value={contractDataForm.birthDate} onChange={e => setContractDataForm(f => ({ ...f, birthDate: e.target.value }))} style={{ fontSize: 13 }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>Percentual cobrado: <strong>{contractDataForm.feePercent ?? 50}%</strong> <span style={{ fontWeight: 400, color: 'var(--color-text-hint)', fontSize: 10 }}>— Entre 20% e 50%</span></label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <input type="range" min="20" max="50" step="1"
+                    value={contractDataForm.feePercent ?? 50}
+                    onChange={e => setContractDataForm(f => ({ ...f, feePercent: Number(e.target.value) }))}
+                    style={{ flex: 1 }}
+                  />
+                  <input type="number" min="20" max="50"
+                    value={contractDataForm.feePercent ?? 50}
+                    onChange={e => {
+                      let v = Number(e.target.value)
+                      if (isNaN(v)) v = 50
+                      v = Math.max(20, Math.min(50, v))
+                      setContractDataForm(f => ({ ...f, feePercent: v }))
+                    }}
+                    style={{ width: 72, textAlign: 'center', fontSize: 13 }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button type="button" onClick={() => setContractDataModal(false)} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: '1px solid var(--color-border)', background: 'transparent', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                Cancelar
+              </button>
+              <button type="button" onClick={saveContractData} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: 'var(--color-blue-mid)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Salvar dados
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Contrato de assessoria ────────────────────────────────────────── */}
       {!hideAssessoria && (
-        <div style={{ background: 'linear-gradient(135deg, #FDFCF8 0%, #F7F3E8 100%)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)', padding: '18px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-            <i className="ti ti-file-signature" style={{ fontSize: 20, color: 'var(--color-blue-mid)' }} aria-hidden="true" />
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Contrato de Assessoria</span>
-          </div>
-          <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--color-text-secondary)' }}>
-            PDF pronto para enviar pelo Autentique. Honorários: {lead.feePercent ?? 50}%.
-          </p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={() => handleContractPDF('preview')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-med)', background: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
-              <i className="ti ti-eye" style={{ fontSize: 15 }} /> Visualizar
-            </button>
-            <button onClick={() => handleContractPDF('download')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-blue-mid)', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
-              <i className="ti ti-download" style={{ fontSize: 15 }} /> Baixar PDF
-            </button>
-          </div>
-          {previewContract && (
-            <div style={{ marginTop: 14 }}>
-              <iframe src={previewContract} title="Pré-visualização do contrato" style={{ width: '100%', height: 520, borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }} />
+        <div style={{ background: 'linear-gradient(135deg, #FDFCF8 0%, #F5F0E8 100%)', border: `1px solid ${hasAllContractData ? '#E2D9C8' : '#FED7AA'}`, borderRadius: 'var(--radius-xl)', overflow: 'hidden' }}>
+
+          {/* Header */}
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
+            {/* Lado esquerdo — título */}
+            <div style={{ flex: 1, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <i className="ti ti-file-signature" style={{ fontSize: 18, color: 'var(--color-blue-mid)' }} />
+              </div>
+              <div>
+                <p style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Contrato de Assessoria</p>
+                <p style={{ margin: 0, fontSize: 11, color: 'var(--color-text-hint)' }}>PDF · Autentique</p>
+              </div>
             </div>
-          )}
+            {/* Lado direito — estimativa */}
+            {emb > 0 && (
+              <div style={{ padding: '14px 20px', borderLeft: '1px solid #E2D9C8', background: 'rgba(21,128,61,0.05)', textAlign: 'right', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 160 }}>
+                <p style={{ margin: 0, fontSize: 10, fontWeight: 600, color: '#15803D', textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.7 }}>Estimativa Leme</p>
+                <p style={{ margin: '2px 0 0', fontSize: 22, fontWeight: 800, color: '#15803D', lineHeight: 1 }}>{fmtCurrency(leme)}</p>
+                <p style={{ margin: '3px 0 0', fontSize: 10, color: '#15803D', opacity: 0.6 }}>{lead.feePercent ?? 50}% de {fmtCurrency(emb)}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Corpo */}
+          <div style={{ padding: '0 20px 18px', borderTop: '1px solid #E2D9C8' }}>
+            {!hasAllContractData ? (
+              <div style={{ paddingTop: 14, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <p style={{ margin: '0 0 2px', fontSize: 12, fontWeight: 600, color: '#C2410C' }}>
+                    <i className="ti ti-alert-triangle" style={{ marginRight: 5 }} />
+                    Dados insuficientes para gerar o PDF
+                  </p>
+                  <p style={{ margin: 0, fontSize: 12, color: '#92400E' }}>
+                    Faltam: <strong>{missingFields.join(', ')}</strong>
+                  </p>
+                </div>
+                <button onClick={openContractDataModal} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 'var(--radius-md)', border: 'none', background: '#EA580C', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
+                  <i className="ti ti-forms" style={{ fontSize: 14 }} /> Preencher dados
+                </button>
+              </div>
+            ) : (
+              <div style={{ paddingTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                  Pronto para enviar pelo Autentique · <strong>{lead.feePercent ?? 50}% honorários</strong>
+                </p>
+                <div style={{ display: 'flex', gap: 7, flexShrink: 0 }}>
+                  <button onClick={openContractDataModal} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 'var(--radius-md)', border: '1px solid #C8BBA8', background: 'transparent', fontSize: 12, fontWeight: 500, cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                    <i className="ti ti-edit" style={{ fontSize: 13 }} /> Editar dados
+                  </button>
+                  <button onClick={() => handleContractPDF('preview')} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 'var(--radius-md)', border: '1px solid #C8BBA8', background: 'transparent', fontSize: 12, fontWeight: 500, cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                    <i className="ti ti-eye" style={{ fontSize: 13 }} /> Visualizar
+                  </button>
+                  <button onClick={() => handleContractPDF('download')} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-blue-mid)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                    <i className="ti ti-download" style={{ fontSize: 13 }} /> Baixar PDF
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {previewContract && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '32px 24px' }}
+          onClick={() => setPreviewContract(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', width: '100%', maxWidth: 860, height: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.35)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
+              <span style={{ fontSize: 14, fontWeight: 600 }}>Contrato de Assessoria — {lead.name}</span>
+              <button onClick={() => setPreviewContract(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--color-text-secondary)', lineHeight: 1, padding: '2px 6px' }}>
+                <i className="ti ti-x" />
+              </button>
+            </div>
+            <iframe src={previewContract} title="Pré-visualização do contrato" style={{ flex: 1, border: 'none', minHeight: 0 }} />
+          </div>
         </div>
       )}
 

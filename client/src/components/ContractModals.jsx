@@ -40,34 +40,11 @@ export function ContractModal({ initial, banks, onSave, onClose }) {
             </select>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>Banco <span style={{ color: 'var(--color-red-mid)' }}>*</span></label>
-            <select value={data.bank} onChange={e => set('bank', e.target.value)} style={{ fontSize: 13, borderColor: !data.bank ? 'var(--color-red-mid)' : undefined }}>
+            <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>Banco</label>
+            <select value={data.bank} onChange={e => set('bank', e.target.value)} style={{ fontSize: 13 }}>
               <option value="">Selecionar…</option>
               {banks.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
-          </div>
-
-          {/* Status — apenas os 3 primeiros (não inclui "Contrato revisado") */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
-            <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>Status</label>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {STATUSES_ALLOWED.map(s => {
-                const meta = BANK_CONTRACT_STATUS_META[s]
-                const active = data.status === s
-                return (
-                  <button key={s} type="button" onClick={() => set('status', s)} style={{
-                    flex: 1, padding: '7px 6px', borderRadius: 8, fontSize: 11, fontWeight: active ? 600 : 400,
-                    border: `1.5px solid ${active ? meta.color : 'var(--color-border)'}`,
-                    background: active ? meta.bg : 'transparent',
-                    color: active ? meta.color : 'var(--color-text-secondary)',
-                    cursor: 'pointer', transition: 'all 0.13s', textAlign: 'center',
-                  }}>
-                    <i className={`ti ${meta.icon}`} style={{ fontSize: 12, display: 'block', marginBottom: 2 }} />
-                    {s}
-                  </button>
-                )
-              })}
-            </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
@@ -101,7 +78,7 @@ export function ContractModal({ initial, banks, onSave, onClose }) {
           <button
             type="button"
             onClick={() => {
-              if (!data.type || !data.bank) { alert('Tipo e Banco são obrigatórios.'); return }
+              if (!data.type) { alert('Tipo é obrigatório.'); return }
               onSave(data)
             }}
             style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: 'var(--color-blue-mid)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}

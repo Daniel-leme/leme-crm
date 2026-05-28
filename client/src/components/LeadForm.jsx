@@ -228,12 +228,12 @@ export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing
   const responsibles = settings?.responsibles ? JSON.parse(settings.responsibles) : ['Daniel', 'Riquelme']
   const leadSources = settings?.leadSources ? JSON.parse(settings.leadSources) : LEAD_SOURCES
 
-  const isNewLead = form.status === '0. Novo Lead'
-  const hideAssessoria = ['0. Novo Lead', '1. Qualificação', '2. Qualificado', '3. Revisão'].includes(form.status)
+  const isNewLead = form.status === 'Novo Lead'
+  const hideAssessoria = ['Novo Lead', 'Qualificação', 'Qualificado', 'Revisão'].includes(form.status)
 
   // Bloqueia avanço além de Qualificação se não houver contratos
-  const BLOCKED_STATUSES = ['2. Qualificado', '3. Revisão', '4. Negociação', '5. Contrato Assinado']
-  const BLOCKED_NEGOCIACAO = ['4. Negociação', '5. Contrato Assinado']
+  const BLOCKED_STATUSES = ['Qualificado', 'Revisão', 'Negociação', 'Contrato Assinado']
+  const BLOCKED_NEGOCIACAO = ['Negociação', 'Contrato Assinado']
   const handleStatusChange = async (newStatus) => {
     if (isEditing && BLOCKED_STATUSES.includes(newStatus)) {
       try {
@@ -431,46 +431,6 @@ export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing
 
           <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 18 }}>
 
-            {/* Contrato a revisar */}
-            <SectionTitle icon="ti-file-description" label="Contrato a revisar" />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-              <Field label="Banco">
-                <select value={form.bank} onChange={e => set('bank', e.target.value)}>
-                  <option value="">Selecionar…</option>
-                  {banks.map(b => <option key={b} value={b}>{b}</option>)}
-                </select>
-              </Field>
-              <Field label="Tipo">
-                <select value={form.contractType} onChange={e => set('contractType', e.target.value)}>
-                  <option value="">Selecionar…</option>
-                  {CONTRACT_TYPES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </Field>
-              <Field label="Nº do contrato">
-                <input value={form.contractNumber} onChange={e => set('contractNumber', e.target.value)} placeholder="000000000" />
-              </Field>
-            </div>
-
-            {/* Dados para contrato */}
-            <SectionTitle icon="ti-id-badge-2" label="Dados do titular" />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-              <Field label="CPF">
-                <input value={form.cpf} onChange={e => set('cpf', fmtCpf(e.target.value))} placeholder="000.000.000-00" />
-              </Field>
-              <Field label="RG">
-                <input value={form.rg} onChange={e => set('rg', e.target.value)} placeholder="00.000.000 SSP/UF" />
-              </Field>
-              <Field label="Data de nascimento">
-                <input type="date" value={form.birthDate} onChange={e => set('birthDate', e.target.value)} />
-              </Field>
-              <Field label="E-mail" hint="Para envio pelo Autentique">
-                <input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="cliente@email.com" />
-              </Field>
-              <Field label="Endereço completo" full hint="Rua, nº, bairro, cidade — UF, CEP">
-                <input value={form.address} onChange={e => set('address', e.target.value)} placeholder="Rua Caxias do Sul, 471, Centro, Palmeira das Missões - RS" />
-              </Field>
-            </div>
-
             {/* Honorários */}
             <SectionTitle icon="ti-cash" label="Honorários" />
             <Field label={`Percentual cobrado: ${form.feePercent ?? 50}%`} hint="Entre 20% e 50%. Padrão: 50%.">
@@ -492,6 +452,27 @@ export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing
                 />
               </div>
             </Field>
+
+            {/* Dados para contrato */}
+            <SectionTitle icon="ti-id-badge-2" label="Dados para contrato" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+              <Field label="CPF">
+                <input value={form.cpf} onChange={e => set('cpf', fmtCpf(e.target.value))} placeholder="000.000.000-00" />
+              </Field>
+              <Field label="RG">
+                <input value={form.rg} onChange={e => set('rg', e.target.value)} placeholder="00.000.000 SSP/UF" />
+              </Field>
+              <Field label="Data de nascimento">
+                <input type="date" value={form.birthDate} onChange={e => set('birthDate', e.target.value)} />
+              </Field>
+              <Field label="E-mail" hint="Para envio pelo Autentique">
+                <input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="cliente@email.com" />
+              </Field>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5, gridColumn: 'span 2' }}>
+                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>Endereço completo <span style={{ fontWeight: 400, color: 'var(--color-text-hint)' }}>— Rua, nº, bairro, cidade — UF, CEP</span></label>
+                <input value={form.address} onChange={e => set('address', e.target.value)} placeholder="Rua Caxias do Sul, 471, Centro, Palmeira das Missões - RS" />
+              </div>
+            </div>
 
           </div>
         </div>

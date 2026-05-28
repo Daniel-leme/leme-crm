@@ -197,8 +197,8 @@ export default function Settings({ settings, onSave }) {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
             {[
-              { from: '1. Qualificação', to: '2. Qualificado e além', rule: 'Exige pelo menos 1 contrato bancário cadastrado' },
-              { from: '3. Revisão', to: '4. Negociação e além', rule: 'Exige pelo menos 1 contrato com status "Contrato revisado" E soma do valor embutido > R$ 0' },
+              { from: 'Qualificação', to: 'Qualificado e além', rule: 'Exige pelo menos 1 contrato bancário cadastrado' },
+              { from: 'Revisão', to: 'Negociação e além', rule: 'Exige pelo menos 1 contrato com status "Contrato revisado" E soma do valor embutido > R$ 0' },
             ].map((r, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12, color: '#7C2D12' }}>
                 <i className="ti ti-arrow-right" style={{ fontSize: 12, marginTop: 1, flexShrink: 0, color: '#EA580C' }} />
@@ -216,7 +216,6 @@ export default function Settings({ settings, onSave }) {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
             {[
-              { trigger: 'Novo contrato criado', condition: 'Lead em 1. Qualificação', result: '→ 2. Qualificado' },
               { trigger: 'Contrato → "Revisar contrato"', condition: 'Lead em 2. Qualificado', result: '→ 3. Revisão' },
             ].map((r, i) => (
               <div key={i} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: 8, fontSize: 12, color: '#166534' }}>

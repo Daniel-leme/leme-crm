@@ -46,12 +46,12 @@ export const LEAD_SOURCES = [
 // ─── Funil Comercial ──────────────────────────────────────────────────────────
 
 export const COMMERCIAL_STATUSES = [
-  '0. Novo Lead',
-  '1. Qualificação',
-  '2. Qualificado',
-  '3. Revisão',
-  '4. Negociação',
-  '5. Contrato Assinado',
+  'Novo Lead',
+  'Qualificação',
+  'Qualificado',
+  'Revisão',
+  'Negociação',
+  'Contrato Assinado',
 ]
 
 // Perdido não é um status — é um sub-estado (isLost=1) dentro de qualquer status 0~4
@@ -66,37 +66,37 @@ export const LOSS_REASONS = [
 ]
 
 export const COMMERCIAL_STATUS_META = {
-  '0. Novo Lead':       { bg: '#F1EFE8',                      color: '#5C5C5A',                     icon: 'ti-user-plus' },
-  '1. Qualificação':    { bg: '#FFF8E1',                      color: '#B45309',                     icon: 'ti-phone' },
-  '2. Qualificado':     { bg: 'var(--color-blue-bg)',          color: 'var(--color-blue-dark)',       icon: 'ti-circle-check' },
-  '3. Revisão':         { bg: 'var(--color-purple-bg)',        color: 'var(--color-purple-dark)',     icon: 'ti-file-search' },
-  '4. Negociação':      { bg: '#FFF0E6',                      color: '#C05B00',                     icon: 'ti-messages' },
-  '5. Contrato Assinado': { bg: '#D4EDDA',                    color: '#155724',                     icon: 'ti-file-check' },
+  'Novo Lead':          { bg: '#F1EFE8',                      color: '#5C5C5A',                     icon: 'ti-user-plus' },
+  'Qualificação':       { bg: '#FFF8E1',                      color: '#B45309',                     icon: 'ti-phone' },
+  'Qualificado':        { bg: 'var(--color-blue-bg)',          color: 'var(--color-blue-dark)',       icon: 'ti-circle-check' },
+  'Revisão':            { bg: 'var(--color-purple-bg)',        color: 'var(--color-purple-dark)',     icon: 'ti-file-search' },
+  'Negociação':         { bg: '#FFF0E6',                      color: '#C05B00',                     icon: 'ti-messages' },
+  'Contrato Assinado':  { bg: '#D4EDDA',                      color: '#155724',                     icon: 'ti-file-check' },
   'Perdido':            { bg: 'var(--color-red-bg)',           color: 'var(--color-red-dark)',        icon: 'ti-circle-x' },
 }
 
 // ─── Funil Operacional ────────────────────────────────────────────────────────
 
 export const OPERATIONAL_STATUSES = [
-  '6. Documentação',
-  '7. Solicitação de Estorno',
-  '8. Aguardando Estorno',
-  '9. Cobrança',
-  '10. Transferência de Repasses',
-  '11. Concluído',
+  'Documentação',
+  'Solicitação de Estorno',
+  'Aguardando Estorno',
+  'Cobrança',
+  'Transferência de Repasses',
+  'Concluído',
 ]
 
 // Perdido operacional = sub-estado (isLost) dentro de qualquer status 6~10
 export const OPERATIONAL_LOSS_STATUSES = ['Perdido']
 
 export const OPERATIONAL_STATUS_META = {
-  '6. Documentação':              { bg: '#E3F2FD', color: '#1565C0', icon: 'ti-file-text' },
-  '7. Solicitação de Estorno':    { bg: '#FFF8E1', color: '#F57F17', icon: 'ti-send' },
-  '8. Aguardando Estorno':        { bg: '#FFF3E0', color: '#E65100', icon: 'ti-hourglass' },
-  '9. Cobrança':                  { bg: '#F3E5F5', color: '#6A1B9A', icon: 'ti-cash' },
-  '10. Transferência de Repasses':{ bg: '#C8E6C9', color: '#1B5E20', icon: 'ti-transfer' },
-  '11. Concluído':                { bg: '#A5D6A7', color: '#1B5E20', icon: 'ti-trophy' },
-  'Perdido':                      { bg: 'var(--color-red-bg)', color: 'var(--color-red-dark)', icon: 'ti-circle-x' },
+  'Documentação':              { bg: '#E3F2FD', color: '#1565C0', icon: 'ti-file-text' },
+  'Solicitação de Estorno':    { bg: '#FFF8E1', color: '#F57F17', icon: 'ti-send' },
+  'Aguardando Estorno':        { bg: '#FFF3E0', color: '#E65100', icon: 'ti-hourglass' },
+  'Cobrança':                  { bg: '#F3E5F5', color: '#6A1B9A', icon: 'ti-cash' },
+  'Transferência de Repasses': { bg: '#C8E6C9', color: '#1B5E20', icon: 'ti-transfer' },
+  'Concluído':                 { bg: '#A5D6A7', color: '#1B5E20', icon: 'ti-trophy' },
+  'Perdido':                   { bg: 'var(--color-red-bg)', color: 'var(--color-red-dark)', icon: 'ti-circle-x' },
 }
 
 // Compatibilidade: STATUS_META e STATUSES combinados para StatusBadge e outros usos legados
@@ -161,7 +161,7 @@ export const emptyLead = () => ({
   adCampaign: '',
   adSet: '',
   adName: '',
-  status: '0. Novo Lead',
+  status: 'Novo Lead',
   feePercent: 50,
   embeddedValue: '',
   productsCount: '',
