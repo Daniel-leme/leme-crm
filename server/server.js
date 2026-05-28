@@ -101,7 +101,6 @@ async function initDb() {
   if (!colNames.includes('embeddedValue')) await run(db, `ALTER TABLE leads ADD COLUMN embeddedValue REAL DEFAULT 0`)
   if (!colNames.includes('nextContact'))   await run(db, `ALTER TABLE leads ADD COLUMN nextContact TEXT DEFAULT ''`)
   if (!colNames.includes('productsCount')) await run(db, `ALTER TABLE leads ADD COLUMN productsCount INTEGER DEFAULT 0`)
-  if (!colNames.includes('adSource'))      await run(db, `ALTER TABLE leads ADD COLUMN adSource TEXT DEFAULT ''`)
   if (!colNames.includes('lossReason'))    await run(db, `ALTER TABLE leads ADD COLUMN lossReason TEXT DEFAULT ''`)
   if (!colNames.includes('lastActiveStatus')) await run(db, `ALTER TABLE leads ADD COLUMN lastActiveStatus TEXT DEFAULT ''`)
   if (!colNames.includes('adCampaign'))    await run(db, `ALTER TABLE leads ADD COLUMN adCampaign TEXT DEFAULT ''`)
@@ -168,14 +167,6 @@ async function initDb() {
       `, [genId(), lead.id, 'Documentação', lead.responsible || '', parseFloat(lead.embeddedValue) || 0, lead.feePercent || 50, now, now])
     }
   }
-
-  // Criar operações retroativas para leads cujos status antigos mapeavam para operações em andamento
-  // Esses já foram migrados para '5. Contrato Assinado' acima, mas precisamos ajustar o status da operação
-  // O mapeamento é feito com base no status antigo que foi convertido — não temos mais essa info.
-  // Porém, os leads que tinham '5. Solicitar estorno' / '6. Aguardando estorno' / '7. Concluído'
-  // foram todos migrados para '5. Contrato Assinado' e a operação foi criada com '6. Documentação'.
-  // Para corrigi-los, precisaríamos de outra fonte de dado — deixamos em '6. Documentação' como estado neutro
-  // pois não há como saber qual era o status operacional sem uma coluna de histórico.
 
   // Tabela de contratos bancários do cliente
   await run(db, `
@@ -246,19 +237,18 @@ app.post('/api/leads', async (req, res) => {
     await run(db, `
       INSERT INTO leads (
         id, name, cpf, rg, birthDate, email, phone, address, responsible,
-        bank, contractType, contractNumber, source, adSource, adCampaign, adSet, adName, status,
+        source, adCampaign, adSet, adName, status,
         feePercent, embeddedValue, productsCount, notes,
-        contractFile, contractName, nextContact, lossReason, lastActiveStatus,
+        lossReason, lastActiveStatus,
         createdAt, updatedAt
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `, [
       id, l.name||'', l.cpf||'', l.rg||'', l.birthDate||'', l.email||'',
       l.phone||'', l.address||'', l.responsible||'',
-      l.bank||'', l.contractType||'', l.contractNumber||'', l.source||'',
-      l.adSource||'', l.adCampaign||'', l.adSet||'', l.adName||'',
+      l.source||'', l.adCampaign||'', l.adSet||'', l.adName||'',
       l.status||'Novo Lead', l.feePercent??50,
       parseFloat(l.embeddedValue)||0, parseInt(l.productsCount)||0,
-      l.notes||'', l.contractFile||null, l.contractName||'', l.nextContact||'',
+      l.notes||'',
       l.lossReason||'', l.lastActiveStatus||'',
       l.createdAt||now, now,
     ])
@@ -298,22 +288,20 @@ app.put('/api/leads/:id', async (req, res) => {
     await run(db, `
       UPDATE leads SET
         name=?,cpf=?,rg=?,birthDate=?,email=?,phone=?,address=?,responsible=?,
-        bank=?,contractType=?,contractNumber=?,source=?,adSource=?,adCampaign=?,adSet=?,adName=?,
+        source=?,adCampaign=?,adSet=?,adName=?,
         status=?,isLost=?,feePercent=?,embeddedValue=?,productsCount=?,notes=?,
-        contractFile=?,contractName=?,nextContact=?,lossReason=?,lastActiveStatus=?,
+        lossReason=?,lastActiveStatus=?,
         updatedAt=?
       WHERE id=?
     `, [
       l.name??ex.name, l.cpf??ex.cpf, l.rg??ex.rg, l.birthDate??ex.birthDate,
       l.email??ex.email, l.phone??ex.phone, l.address??ex.address, l.responsible??ex.responsible,
-      l.bank??ex.bank, l.contractType??ex.contractType, l.contractNumber??ex.contractNumber,
-      l.source??ex.source, l.adSource??ex.adSource,
+      l.source??ex.source,
       l.adCampaign??ex.adCampaign, l.adSet??ex.adSet, l.adName??ex.adName,
       newStatus, newIsLost, newFeePercent,
       newEmbedded,
       parseInt(l.productsCount??ex.productsCount)||0,
-      l.notes??ex.notes, l.contractFile??ex.contractFile, l.contractName??ex.contractName,
-      (l.nextContact??ex.nextContact)||'',
+      l.notes??ex.notes,
       lossReason, lastActiveStatus,
       now, req.params.id,
     ])
@@ -360,8 +348,8 @@ app.delete('/api/leads/:id', async (req, res) => {
 app.get('/api/operations/by-lead/:lead_id', async (req, res) => {
   try {
     const op = await get(db, `
-      SELECT o.*, l.name as lead_name, l.phone as lead_phone, l.bank as lead_bank,
-             l.source as lead_source, l.adSource as lead_adSource,
+      SELECT o.*, l.name as lead_name, l.phone as lead_phone,
+             l.source as lead_source,
              l.adCampaign as lead_adCampaign, l.adSet as lead_adSet, l.adName as lead_adName,
              l.cpf as lead_cpf, l.responsible as lead_responsible,
              l.embeddedValue as lead_embeddedValue, l.feePercent as lead_feePercent
@@ -377,8 +365,8 @@ app.get('/api/operations/by-lead/:lead_id', async (req, res) => {
 app.get('/api/operations', async (req, res) => {
   try {
     const rows = await all(db, `
-      SELECT o.*, l.name as lead_name, l.phone as lead_phone, l.bank as lead_bank,
-             l.source as lead_source, l.adSource as lead_adSource,
+      SELECT o.*, l.name as lead_name, l.phone as lead_phone,
+             l.source as lead_source,
              l.adCampaign as lead_adCampaign, l.adSet as lead_adSet, l.adName as lead_adName,
              l.cpf as lead_cpf, l.responsible as lead_responsible,
              l.embeddedValue as lead_embeddedValue, l.feePercent as lead_feePercent
@@ -393,8 +381,8 @@ app.get('/api/operations', async (req, res) => {
 app.get('/api/operations/:id', async (req, res) => {
   try {
     const op = await get(db, `
-      SELECT o.*, l.name as lead_name, l.phone as lead_phone, l.bank as lead_bank,
-             l.source as lead_source, l.adSource as lead_adSource,
+      SELECT o.*, l.name as lead_name, l.phone as lead_phone,
+             l.source as lead_source,
              l.adCampaign as lead_adCampaign, l.adSet as lead_adSet, l.adName as lead_adName,
              l.cpf as lead_cpf, l.responsible as lead_responsible,
              l.embeddedValue as lead_embeddedValue, l.feePercent as lead_feePercent
@@ -465,8 +453,8 @@ app.put('/api/operations/:id', async (req, res) => {
     }
 
     res.json(await get(db, `
-      SELECT o.*, l.name as lead_name, l.phone as lead_phone, l.bank as lead_bank,
-             l.source as lead_source, l.adSource as lead_adSource,
+      SELECT o.*, l.name as lead_name, l.phone as lead_phone,
+             l.source as lead_source,
              l.adCampaign as lead_adCampaign, l.adSet as lead_adSet, l.adName as lead_adName,
              l.cpf as lead_cpf, l.responsible as lead_responsible,
              l.embeddedValue as lead_embeddedValue, l.feePercent as lead_feePercent
@@ -500,8 +488,6 @@ app.post('/api/leads/:lead_id/contracts', async (req, res) => {
     ])
     // Recalcular embeddedValue do lead como soma dos contratos
     await syncLeadEmbedded(req.params.lead_id, now)
-    // Primeiro contrato adicionado → avança lead para 1. Qualificação se ainda em Novo Lead
-    await autoAdvanceOnFirstContract(req.params.lead_id, now)
     res.status(201).json(await get(db, `SELECT * FROM contracts WHERE id = ?`, [id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
@@ -539,17 +525,13 @@ app.delete('/api/leads/:lead_id/contracts/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-async function autoAdvanceOnFirstContract(leadId, now) {
-  // avanço automático de Qualificação → Qualificado foi removido a pedido do usuário
-}
-
-// Atualizar contrato enquanto lead está em Qualificado e status vai para "Revisar contrato" → avança para Revisão
+// Se contrato vai para "Revisar contrato" e lead está em Qualificação ou Qualificado → avança para Revisão
 async function autoAdvanceLeadStatus(leadId, contractStatus, now) {
   const lead = await get(db, `SELECT status FROM leads WHERE id=?`, [leadId])
   if (!lead) return
   const cur = lead.status
   if (contractStatus === 'Revisar contrato') {
-    if (cur === 'Qualificado') {
+    if (cur === 'Qualificação' || cur === 'Qualificado') {
       await run(db, `UPDATE leads SET status='Revisão', updatedAt=? WHERE id=?`, [now, leadId])
     }
   }

@@ -6,11 +6,6 @@ export const DEFAULT_BANKS = [
   'Mercantil', 'Outro',
 ]
 
-export const CONTRACT_TYPES = [
-  'Financiamento',
-  'Empréstimo',
-]
-
 // ─── Contratos bancários do cliente ──────────────────────────────────────────
 
 export const BANK_CONTRACT_TYPES = [
@@ -153,11 +148,7 @@ export const emptyLead = () => ({
   phone: '',
   address: '',
   responsible: 'Riquelme',
-  bank: '',
-  contractType: '',
-  contractNumber: '',
   source: '',
-  adSource: '',
   adCampaign: '',
   adSet: '',
   adName: '',
@@ -166,10 +157,7 @@ export const emptyLead = () => ({
   embeddedValue: '',
   productsCount: '',
   notes: '',
-  nextContact: '',
   lossReason: '',
   lastActiveStatus: '',
-  contractFile: null,
-  contractName: '',
   createdAt: new Date().toISOString(),
 })

@@ -252,11 +252,6 @@ export default function OperationDetail({ operation, settings, onStatusChange, o
             <h3 style={{ margin: 0, fontSize: 17, fontWeight: 600 }}>{operation.lead_name || '(sem nome)'}</h3>
             <div style={{ marginTop: 5, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <StatusBadge status={isLost ? 'Perdido' : operation.status} />
-              {operation.lead_bank && (
-                <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', background: 'var(--color-bg)', padding: '2px 8px', borderRadius: 99, border: '1px solid var(--color-border)' }}>
-                  {operation.lead_bank}
-                </span>
-              )}
             </div>
           </div>
           {onOpenLead && (

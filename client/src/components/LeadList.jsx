@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, fmtCurrency } from '../constants'
+import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, OPERATIONAL_STATUSES, fmtCurrency } from '../constants'
 import StatusBadge from './StatusBadge'
 
 
@@ -56,9 +56,10 @@ function LeadRow({ lead, onSelect }) {
           <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--color-text-hint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {[lead.phone, lead.bank, lead.responsible].filter(Boolean).join(' · ') || '—'}
           </p>
-          {lost && lead.lossReason && (
+          {lost && (
             <p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--color-red-dark)', fontWeight: 500 }}>
-              Perdido · {lead.lossReason}
+              Perdido em <strong>{lead.lastActiveStatus || lead.status}</strong>
+              {lead.lossReason ? ` · ${lead.lossReason}` : ''}
             </p>
           )}
         </div>
@@ -99,20 +100,39 @@ function LeadRow({ lead, onSelect }) {
 }
 
 // ── Esteira do funil (conveyor belt) ──────────────────────────────────────────
+// filterStatus pode ser:
+//   'Todos' | 'Perdas' | 'Perdas:ETAPA' | 'Contrato Assinado' | qualquer status ativo
 function ConveyorBelt({ leads, filterStatus, onFilter }) {
   const activeLeads = leads.filter(l => !l.isLost)
   const lostLeads   = leads.filter(l => !!l.isLost)
 
-  const beltItems = COMMERCIAL_STATUSES.map(s => ({
-    status: s,
-    meta:   COMMERCIAL_STATUS_META[s],
-    count:  activeLeads.filter(l => l.status === s).length,
-  }))
+  const ACTIVE_STATUSES = COMMERCIAL_STATUSES.filter(s => s !== 'Contrato Assinado')
 
-  const isAll      = filterStatus === 'Todos'
-  const isLostView = filterStatus === 'Perdas'
+  const concludedCount = activeLeads.filter(l => l.status === 'Contrato Assinado').length
+  const concludedMeta  = COMMERCIAL_STATUS_META['Contrato Assinado']
 
-  // Card isolado (Todos / Perdas)
+  const isLostMode  = filterStatus === 'Perdas' || filterStatus.startsWith('Perdas:')
+  const isAll       = filterStatus === 'Todos'
+  const isConcluded = filterStatus === 'Contrato Assinado'
+
+  // No modo perdas, qual etapa está selecionada dentro da barra?
+  const lostStage = isLostMode && filterStatus.startsWith('Perdas:')
+    ? filterStatus.slice('Perdas:'.length)
+    : null  // null = "todas as perdas" (card esquerdo)
+
+  const RED      = 'var(--color-red-dark)'
+  const RED_BG   = 'var(--color-red-bg)'
+  const RED_MID  = '#FCA5A5'
+
+  // Conta perdas por etapa (usando lastActiveStatus)
+  const lostByStage = (s) => lostLeads.filter(l => (l.lastActiveStatus || l.status) === s).length
+
+  // Perdas operacionais = leads perdidos cujo lastActiveStatus pertence ao funil operacional
+  const opLostLeads = lostLeads.filter(l => OPERATIONAL_STATUSES.includes(l.lastActiveStatus))
+  const opLostCount = opLostLeads.length
+  const isOpLostStage = isLostMode && lostStage === '__op__'
+
+  // Card isolado (solo)
   const soloCard = (active, accentColor, accentBg) => ({
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
     gap: 3, padding: '9px 16px', flexShrink: 0,
@@ -126,42 +146,64 @@ function ConveyorBelt({ leads, filterStatus, onFilter }) {
   return (
     <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, width: '100%' }}>
 
-      {/* Card "Todos" — isolado à esquerda */}
-      <button onClick={() => onFilter('Todos')} style={soloCard(isAll, '#2C2C2A', '#F1EFE8')}>
-        <i className="ti ti-layout-list" style={{ fontSize: 14, color: isAll ? '#2C2C2A' : 'var(--color-text-hint)' }} />
-        <span style={{ fontSize: 10, fontWeight: isAll ? 600 : 400, color: isAll ? '#2C2C2A' : 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
-          Todos
-        </span>
-        <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1, color: isAll ? '#2C2C2A' : 'var(--color-text-primary)' }}>
-          {activeLeads.length}
-        </span>
-      </button>
+      {/* Card esquerdo — "Leads Ativos" ou "Total Perdas" */}
+      {isLostMode ? (
+        <button
+          onClick={() => onFilter('Perdas')}
+          style={soloCard(!lostStage, RED, RED_BG)}
+        >
+          <i className="ti ti-circle-x" style={{ fontSize: 14, color: !lostStage ? RED : 'var(--color-text-hint)' }} />
+          <span style={{ fontSize: 10, fontWeight: !lostStage ? 600 : 400, color: !lostStage ? RED : 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+            Total Perdas
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1, color: !lostStage ? RED : 'var(--color-text-primary)' }}>
+            {lostLeads.length}
+          </span>
+        </button>
+      ) : (
+        <button onClick={() => onFilter('Todos')} style={soloCard(isAll, '#2C2C2A', '#F1EFE8')}>
+          <i className="ti ti-layout-list" style={{ fontSize: 14, color: isAll ? '#2C2C2A' : 'var(--color-text-hint)' }} />
+          <span style={{ fontSize: 10, fontWeight: isAll ? 600 : 400, color: isAll ? '#2C2C2A' : 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+            Leads Ativos
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1, color: isAll ? '#2C2C2A' : 'var(--color-text-primary)' }}>
+            {activeLeads.filter(l => l.status !== 'Contrato Assinado').length}
+          </span>
+        </button>
+      )}
 
-      {/* Barra central — ocupa todo o espaço restante, cards colados sem divisória */}
+      {/* Barra central */}
       <div style={{
         flex: 1, display: 'flex', alignItems: 'stretch', overflow: 'hidden',
-        border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)',
-        background: 'var(--color-surface)',
+        border: isLostMode ? `1.5px solid ${RED_MID}` : '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-lg)',
+        background: isLostMode ? RED_BG : 'var(--color-surface)',
+        transition: 'border-color 0.2s, background 0.2s',
       }}>
-        {beltItems.map((item, idx) => {
-          const isActive = filterStatus === item.status
-          const isFirst  = idx === 0
-          const isLast   = idx === beltItems.length - 1
+        {ACTIVE_STATUSES.map((s, idx) => {
+          const isFirst   = idx === 0
+          const isLast    = idx === ACTIVE_STATUSES.length - 1
+          const meta      = COMMERCIAL_STATUS_META[s]
+          // No modo normal: destaca o status selecionado; no modo perdas: destaca a etapa de perda
+          const isActive  = isLostMode ? lostStage === s : filterStatus === s
+          const count     = isLostMode ? lostByStage(s) : activeLeads.filter(l => l.status === s).length
+          const activeColor = isLostMode ? RED : meta.color
+          const activeBg    = isLostMode ? '#FEE2E2' : meta.bg
+
           return (
             <button
-              key={item.status}
-              onClick={() => onFilter(item.status)}
+              key={s}
+              onClick={() => onFilter(isLostMode ? `Perdas:${s}` : s)}
               style={{
                 flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                gap: 3, padding: '9px 4px',
+                gap: 3, padding: '9px 2px',
                 border: 'none', outline: 'none',
-                background: isActive ? item.meta.bg : 'transparent',
+                background: isActive ? activeBg : 'transparent',
                 cursor: 'pointer', transition: 'background 0.15s',
-                // borda lateral interna só quando ativo — destaca sem criar linhas em todos
-                borderLeft:  isActive && !isFirst ? `1.5px solid ${item.meta.color}` : 'none',
-                borderRight: isActive && !isLast  ? `1.5px solid ${item.meta.color}` : 'none',
-                borderTop:    isActive ? `1.5px solid ${item.meta.color}` : 'none',
-                borderBottom: isActive ? `1.5px solid ${item.meta.color}` : 'none',
+                borderLeft:   isActive && !isFirst ? `1.5px solid ${activeColor}` : 'none',
+                borderRight:  isActive && !isLast  ? `1.5px solid ${activeColor}` : 'none',
+                borderTop:    isActive ? `1.5px solid ${activeColor}` : 'none',
+                borderBottom: isActive ? `1.5px solid ${activeColor}` : 'none',
                 borderRadius: isFirst
                   ? 'calc(var(--radius-lg) - 1px) 0 0 calc(var(--radius-lg) - 1px)'
                   : isLast
@@ -170,29 +212,64 @@ function ConveyorBelt({ leads, filterStatus, onFilter }) {
                 position: 'relative', zIndex: isActive ? 1 : 0,
               }}
             >
-              <i className={`ti ${item.meta.icon}`} style={{ fontSize: 13, color: isActive ? item.meta.color : 'var(--color-text-hint)' }} />
+              <i
+                className={`ti ${isLostMode ? 'ti-circle-x' : meta.icon}`}
+                style={{ fontSize: 13, color: isActive ? activeColor : isLostMode ? RED_MID : 'var(--color-text-hint)' }}
+              />
               <span style={{
                 fontSize: 10, fontWeight: isActive ? 600 : 400, whiteSpace: 'nowrap',
-                maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center',
-                color: isActive ? item.meta.color : 'var(--color-text-secondary)',
+                maxWidth: 64, overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center',
+                color: isActive ? activeColor : isLostMode ? RED : 'var(--color-text-secondary)',
               }}>
-                {item.status.replace(/^\d+\.\s*/, '')}
+                {s}
               </span>
-              <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1, color: isActive ? item.meta.color : 'var(--color-text-primary)' }}>
-                {item.count}
+              <span style={{
+                fontSize: 13, fontWeight: 700, lineHeight: 1,
+                color: isActive ? activeColor : isLostMode ? RED : 'var(--color-text-primary)',
+              }}>
+                {count}
               </span>
             </button>
           )
         })}
       </div>
 
-      {/* Card "Perdas" — isolado à direita */}
-      <button onClick={() => onFilter('Perdas')} style={soloCard(isLostView, 'var(--color-red-dark)', 'var(--color-red-bg)')}>
-        <i className="ti ti-circle-x" style={{ fontSize: 14, color: isLostView ? 'var(--color-red-dark)' : 'var(--color-text-hint)' }} />
-        <span style={{ fontSize: 10, fontWeight: isLostView ? 600 : 400, color: isLostView ? 'var(--color-red-dark)' : 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+      {/* Card "Contrato Assinado" — sempre visível; no modo perdas mostra perdas operacionais */}
+      {isLostMode ? (
+        <button
+          onClick={() => onFilter('Perdas:__op__')}
+          style={soloCard(isOpLostStage, RED, RED_BG)}
+        >
+          <i className="ti ti-circle-x" style={{ fontSize: 14, color: isOpLostStage ? RED : RED_MID }} />
+          <span style={{ fontSize: 10, fontWeight: isOpLostStage ? 600 : 400, color: RED, whiteSpace: 'nowrap' }}>
+            Contrato Assinado
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1, color: isOpLostStage ? RED : RED }}>
+            {opLostCount}
+          </span>
+        </button>
+      ) : (
+        <button onClick={() => onFilter('Contrato Assinado')} style={soloCard(isConcluded, concludedMeta.color, concludedMeta.bg)}>
+          <i className={`ti ${concludedMeta.icon}`} style={{ fontSize: 14, color: isConcluded ? concludedMeta.color : 'var(--color-text-hint)' }} />
+          <span style={{ fontSize: 10, fontWeight: isConcluded ? 600 : 400, color: isConcluded ? concludedMeta.color : 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+            Contrato Assinado
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1, color: isConcluded ? concludedMeta.color : 'var(--color-text-primary)' }}>
+            {concludedCount}
+          </span>
+        </button>
+      )}
+
+      {/* Card "Perdas" — sempre à direita */}
+      <button
+        onClick={() => onFilter(isLostMode ? 'Todos' : 'Perdas')}
+        style={soloCard(isLostMode, RED, RED_BG)}
+      >
+        <i className="ti ti-circle-x" style={{ fontSize: 14, color: isLostMode ? RED : 'var(--color-text-hint)' }} />
+        <span style={{ fontSize: 10, fontWeight: isLostMode ? 600 : 400, color: isLostMode ? RED : 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
           Perdas
         </span>
-        <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1, color: isLostView ? 'var(--color-red-dark)' : 'var(--color-text-primary)' }}>
+        <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1, color: isLostMode ? RED : 'var(--color-text-primary)' }}>
           {lostLeads.length}
         </span>
       </button>
@@ -211,36 +288,42 @@ export default function LeadList({ leads, onSelect, onNew }) {
 
   const responsibles = ['Todos', ...Array.from(new Set(leads.map(l => l.responsible).filter(Boolean)))]
 
-  const showingLosses = filterStatus === 'Perdas'
+  const isLostMode  = filterStatus === 'Perdas' || filterStatus.startsWith('Perdas:')
+  const lostStage   = isLostMode && filterStatus.startsWith('Perdas:') ? filterStatus.slice('Perdas:'.length) : null
+  // lostStage '__op__' = todas as perdas operacionais (vindas do funil operacional)
 
   const STATUS_ORDER = COMMERCIAL_STATUSES.reduce((acc, s, i) => ({ ...acc, [s]: i }), {})
 
   const applyFilters = (list) => {
-    const filtered = list.filter(l => {
-      if (filterStatus === 'Todos' && l.status === 'Contrato Assinado') return false
     const q = search.toLowerCase()
-    const matchSearch =
-      (l.name || '').toLowerCase().includes(q) ||
-      (l.phone || '').includes(q) ||
-      (l.cpf || '').includes(q) ||
-      (l.bank || '').toLowerCase().includes(q)
-      const matchStatus = (filterStatus === 'Todos' || showingLosses) ? true : l.status === filterStatus
-      const matchResp   = filterResp === 'Todos' || l.responsible === filterResp
+    const filtered = list.filter(l => {
+      if (!isLostMode && filterStatus === 'Todos' && l.status === 'Contrato Assinado') return false
+      const matchSearch =
+        (l.name || '').toLowerCase().includes(q) ||
+        (l.phone || '').includes(q) ||
+        (l.cpf || '').includes(q)
+      // No modo perdas por etapa: filtra pelo lastActiveStatus
+      const matchStatus = isLostMode
+        ? (lostStage === '__op__'
+            ? OPERATIONAL_STATUSES.includes(l.lastActiveStatus)
+            : lostStage
+            ? (l.lastActiveStatus || l.status) === lostStage
+            : true)
+        : (filterStatus === 'Todos' ? true : l.status === filterStatus)
+      const matchResp = filterResp === 'Todos' || l.responsible === filterResp
       return matchSearch && matchStatus && matchResp
     })
-    if (filterStatus === 'Todos') {
+    if (!isLostMode && filterStatus === 'Todos') {
       filtered.sort((a, b) => (STATUS_ORDER[b.status] ?? 0) - (STATUS_ORDER[a.status] ?? 0))
     }
     return filtered
   }
 
-  const filteredActive = showingLosses ? [] : applyFilters(activeLeads)
-  const filteredLost   = showingLosses ? applyFilters(lostLeads) : []
+  const filteredActive = isLostMode ? [] : applyFilters(activeLeads)
+  const filteredLost   = isLostMode ? applyFilters(lostLeads) : []
 
   // Métricas — baseadas em leads ativos (não perdidos)
   const funnelLeads   = activeLeads.filter(l => l.status !== 'Contrato Assinado')
-  const concluded     = activeLeads.filter(l => l.status === 'Contrato Assinado').length
-  const inNegotiation = activeLeads.filter(l => l.status === 'Negociação').length
   const totalEmbedded = funnelLeads.reduce((s, l) => s + (parseFloat(l.embeddedValue) || 0), 0)
   const totalLeme     = funnelLeads.reduce((s, l) => {
     const emb = parseFloat(l.embeddedValue) || 0
@@ -253,11 +336,9 @@ export default function LeadList({ leads, onSelect, onNew }) {
       {/* ── Cards de métricas ────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
         {[
-          { label: 'Total no funil',        value: funnelLeads.length,          icon: 'ti-users',    bg: '#F1EFE8',                    color: '#2C2C2A' },
-          { label: 'Em negociação',        value: inNegotiation,               icon: 'ti-messages', bg: '#FFF0E6',                    color: '#C05B00' },
-          { label: 'Contrato assinado',    value: concluded,                   icon: 'ti-file-check',bg: '#D4EDDA',                   color: '#155724' },
-          { label: 'Valor embutido',       value: fmtCurrency(totalEmbedded),  icon: 'ti-coin',     bg: '#FFF3CD',                    color: '#7A4F00' },
-          { label: 'Estimado Leme',        value: fmtCurrency(totalLeme),      icon: 'ti-cash',     bg: 'var(--color-green-bg)',       color: 'var(--color-green-dark)' },
+          { label: 'Leads Ativos',           value: funnelLeads.length,          icon: 'ti-users',       bg: '#F1EFE8',                  color: '#2C2C2A' },
+          { label: 'Valor Embutido',        value: fmtCurrency(totalEmbedded),  icon: 'ti-coin',        bg: '#FFF3CD',                  color: '#7A4F00' },
+          { label: 'Potencial de Receita Bruta', value: fmtCurrency(totalLeme), icon: 'ti-trending-up', bg: 'var(--color-green-bg)',     color: 'var(--color-green-dark)' },
         ].map(m => (
           <div key={m.label} style={{ background: m.bg, borderRadius: 'var(--radius-lg)', padding: '14px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
@@ -289,7 +370,7 @@ export default function LeadList({ leads, onSelect, onNew }) {
       </div>
 
       {/* ── Lista principal ───────────────────────────────────────────────── */}
-      {!showingLosses && (
+      {!isLostMode && (
         filteredActive.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '4rem 0', color: 'var(--color-text-hint)', fontSize: 14 }}>
             <i className="ti ti-users-group" style={{ fontSize: 40, display: 'block', marginBottom: 12 }} aria-hidden="true" />
@@ -303,7 +384,7 @@ export default function LeadList({ leads, onSelect, onNew }) {
       )}
 
       {/* ── Seção de perdas ───────────────────────────────────────────────── */}
-      {showingLosses && (
+      {isLostMode && (
         filteredLost.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '4rem 0', color: 'var(--color-text-hint)', fontSize: 14 }}>
             <i className="ti ti-circle-x" style={{ fontSize: 40, display: 'block', marginBottom: 12 }} aria-hidden="true" />

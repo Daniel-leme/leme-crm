@@ -28,7 +28,7 @@ export default function OperationList({ operations, onSelect }) {
     const matchSearch =
       (op.lead_name || '').toLowerCase().includes(q) ||
       (op.lead_phone || '').includes(q) ||
-      (op.lead_bank || '').toLowerCase().includes(q)
+      (op.lead_source || '').toLowerCase().includes(q)
     const matchStatus = filterStatus === 'Todos' || showingLosses || op.status === filterStatus
     const matchResp   = filterResp === 'Todos' || op.responsible === filterResp
     return matchSearch && matchStatus && matchResp
@@ -165,7 +165,7 @@ export default function OperationList({ operations, onSelect }) {
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 200, position: 'relative' }}>
           <i className="ti ti-search" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: 'var(--color-text-hint)' }} aria-hidden="true" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nome, telefone ou banco…" style={{ paddingLeft: 34 }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nome, telefone ou origem…" style={{ paddingLeft: 34 }} />
         </div>
         <select value={filterResp} onChange={e => setFilterResp(e.target.value)} style={{ width: 'auto', minWidth: 140 }}>
           {responsibles.map(r => <option key={r} value={r}>{r === 'Todos' ? 'Todos os responsáveis' : r}</option>)}
@@ -217,7 +217,7 @@ export default function OperationList({ operations, onSelect }) {
                     </p>
                     <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {op.lead_phone || '—'}
-                      {op.lead_bank ? ` · ${op.lead_bank}` : ''}
+                      {op.lead_source ? ` · ${op.lead_source}` : ''}
                       {op.responsible ? ` · ${op.responsible}` : ''}
                     </p>
                     {lost && op.lossReason && (

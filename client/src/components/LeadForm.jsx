@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { CONTRACT_TYPES, LEAD_SOURCES, COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, DEFAULT_BANKS, BANK_CONTRACT_TYPES, BANK_CONTRACT_STATUSES, BANK_CONTRACT_STATUS_META, fmtPhone, fmtCpf, fmtCurrency } from '../constants'
+import { LEAD_SOURCES, COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, DEFAULT_BANKS, BANK_CONTRACT_TYPES, BANK_CONTRACT_STATUSES, BANK_CONTRACT_STATUS_META, fmtPhone, fmtCpf, fmtCurrency } from '../constants'
 import { apiListContracts, apiCreateContract, apiUpdateContract, apiDeleteContract } from '../utils/api'
 import { ContractModal, ReviewModal } from './ContractModals'
 

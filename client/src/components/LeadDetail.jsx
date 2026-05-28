@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS, BANK_CONTRACT_STATUSES, BANK_CONTRACT_STATUS_META, DEFAULT_BANKS, fmtDate, fmtCurrency, fmtCpf } from '../constants'
+import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS, BANK_CONTRACT_STATUSES, BANK_CONTRACT_STATUS_META, DEFAULT_BANKS, fmtDate, fmtCurrency } from '../constants'
 import StatusBadge from './StatusBadge'
 import { generateContractPDF } from '../utils/contractPdf'
 import { apiGetOperationByLead, apiListContracts, apiCreateContract, apiUpdateContract, apiDeleteContract, apiUpdateLead } from '../utils/api'
@@ -854,16 +854,13 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
           />
         </div>
 
+        <InfoRow icon="ti-phone"            label="Telefone"      value={lead.phone} />
+        <InfoRow icon="ti-target"           label="Origem"        value={lead.source} />
         <InfoRow icon="ti-id"               label="CPF"           value={lead.cpf} />
         <InfoRow icon="ti-license"          label="RG"            value={lead.rg} />
         <InfoRow icon="ti-cake"             label="Nascimento"    value={fmtDate(lead.birthDate)} />
         <InfoRow icon="ti-mail"             label="E-mail"        value={lead.email} />
-        <InfoRow icon="ti-phone"            label="Telefone"      value={lead.phone} />
         <InfoRow icon="ti-map-pin"          label="Endereço"      value={lead.address} />
-        <InfoRow icon="ti-building-bank"    label="Banco"         value={lead.bank} />
-        <InfoRow icon="ti-file-description" label="Tipo"          value={lead.contractType} />
-        <InfoRow icon="ti-hash"             label="Nº contrato"   value={lead.contractNumber} />
-        <InfoRow icon="ti-target"           label="Origem"        value={lead.source} />
         <InfoRow icon="ti-calendar"         label="Cadastrado em" value={createdAt} />
         {(lead.adCampaign || lead.adSet || lead.adName) && (
           <MetaAdsRow campaign={lead.adCampaign} adSet={lead.adSet} adName={lead.adName} />
