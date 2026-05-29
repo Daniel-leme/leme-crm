@@ -442,15 +442,10 @@ app.put('/api/operations/:id', async (req, res) => {
     await run(db, `
       UPDATE operations SET
         status=?, isLost=?, lossReason=?, lastActiveStatus=?,
-        responsible=?, notes=?, distributionNotes=?,
-        repaymentValue=?, updatedAt=?
+        updatedAt=?
       WHERE id=?
     `, [
       newStatus, newIsLost, opLossReason, opLastActive,
-      d.responsible ?? ex.responsible,
-      d.notes ?? ex.notes,
-      d.distributionNotes ?? ex.distributionNotes,
-      parseFloat(d.repaymentValue ?? ex.repaymentValue) || 0,
       now, req.params.id,
     ])
 

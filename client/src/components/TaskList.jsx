@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { apiListTasks, apiUpdateTask, apiDeleteTask } from '../utils/api'
 import TaskModal from './TaskModal'
+import ConfirmModal from './ConfirmModal'
 
 const TYPE_ICONS = {
   'Ligação':               'ti-phone',
@@ -335,7 +336,7 @@ function Column({ col, children, count }) {
   )
 }
 
-export default function TaskList({ leads, onOpenLead, settings, onTaskChanged, onTaskEdited }) {
+export default function TaskList({ leads, onOpenLead, settings, onTaskChanged, onTaskEdited, onTaskDeleted }) {
   const leadsById = Object.fromEntries((leads || []).map(l => [l.id, l]))
   const [tasks,      setTasks]      = useState([])
   const [loading,    setLoading]    = useState(true)
@@ -343,6 +344,7 @@ export default function TaskList({ leads, onOpenLead, settings, onTaskChanged, o
   const [filterResp, setFilterResp] = useState('Todos')
   const [filterType, setFilterType] = useState('Todos')
   const [showDone,   setShowDone]   = useState(false)
+  const [confirmTask, setConfirmTask] = useState(null)
 
   const responsibles = settings?.responsibles
     ? JSON.parse(settings.responsibles)
@@ -364,7 +366,7 @@ export default function TaskList({ leads, onOpenLead, settings, onTaskChanged, o
   }
   const handleEdit   = (task) => setEditTask(task)
   const handleDelete = async (task) => {
-    if (!window.confirm('Excluir esta tarefa?')) return
+    onTaskDeleted?.(task.id)
     await apiDeleteTask(task.id)
     await load()
     onTaskChanged?.()
@@ -512,7 +514,7 @@ export default function TaskList({ leads, onOpenLead, settings, onTaskChanged, o
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                           {buckets.late.map(task => (
-                            <TaskCard key={task.id} task={task} col={latCol} onDone={handleDone} onEdit={handleEdit} onDelete={handleDelete}
+                            <TaskCard key={task.id} task={task} col={latCol} onDone={handleDone} onEdit={handleEdit} onDelete={(t) => setConfirmTask(t)}
                               onOpenLead={onOpenLead && leadsById[task.lead_id] ? () => onOpenLead(leadsById[task.lead_id]) : undefined} />
                           ))}
                         </div>
@@ -550,7 +552,7 @@ export default function TaskList({ leads, onOpenLead, settings, onTaskChanged, o
                     {list.length === 0
                       ? <div style={{ padding: '12px 0', textAlign: 'center', color: 'var(--color-text-hint)', fontSize: 12 }}>Nenhuma</div>
                       : list.map(task => (
-                        <TaskCard key={task.id} task={task} col={col} onDone={handleDone} onEdit={handleEdit} onDelete={handleDelete}
+                        <TaskCard key={task.id} task={task} col={col} onDone={handleDone} onEdit={handleEdit} onDelete={(t) => setConfirmTask(t)}
                           onOpenLead={onOpenLead && leadsById[task.lead_id] ? () => onOpenLead(leadsById[task.lead_id]) : undefined} />
                       ))
                     }
@@ -567,7 +569,7 @@ export default function TaskList({ leads, onOpenLead, settings, onTaskChanged, o
                     {list.length === 0
                       ? <div style={{ padding: '12px 0', textAlign: 'center', color: 'var(--color-text-hint)', fontSize: 12 }}>Nenhuma</div>
                       : list.map(task => (
-                        <TaskCard key={task.id} task={task} col={col} onDone={handleDone} onEdit={handleEdit} onDelete={handleDelete}
+                        <TaskCard key={task.id} task={task} col={col} onDone={handleDone} onEdit={handleEdit} onDelete={(t) => setConfirmTask(t)}
                           onOpenLead={onOpenLead && leadsById[task.lead_id] ? () => onOpenLead(leadsById[task.lead_id]) : undefined} />
                       ))
                     }
@@ -601,7 +603,7 @@ export default function TaskList({ leads, onOpenLead, settings, onTaskChanged, o
                         <span style={{ fontSize: 13, textDecoration: 'line-through', color: 'var(--color-text-secondary)' }}>{task.type}</span>
                         {task.lead_name && <span style={{ fontSize: 11, color: 'var(--color-text-hint)', marginLeft: 6 }}>· {task.lead_name}</span>}
                       </div>
-                      <button onClick={() => handleDelete(task)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--color-text-hint)', fontSize: 14 }}>
+                      <button onClick={() => setConfirmTask(task)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--color-text-hint)', fontSize: 14 }}>
                         <i className="ti ti-trash" />
                       </button>
                     </div>
@@ -626,6 +628,15 @@ export default function TaskList({ leads, onOpenLead, settings, onTaskChanged, o
           contractMode={!!(editTask.isAuto && editTask.contract_id)}
         />
       )}
+
+      <ConfirmModal
+        open={!!confirmTask}
+        title="Excluir tarefa"
+        message="Esta tarefa será removida permanentemente."
+        confirmLabel="Excluir"
+        onConfirm={() => { const t = confirmTask; setConfirmTask(null); handleDelete(t) }}
+        onCancel={() => setConfirmTask(null)}
+      />
     </div>
   )
 }

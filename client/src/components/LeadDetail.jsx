@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS, BANK_CONTRACT_STATUSES, BANK_CONTRACT_STATUS_META, DEFAULT_BANKS, fmtDate, fmtCurrency, fmtCpf } from '../constants'
 import StatusBadge from './StatusBadge'
 import { generateContractPDF } from '../utils/contractPdf'
 import { apiGetOperationByLead, apiListContracts, apiCreateContract, apiUpdateContract, apiDeleteContract, apiUpdateLead, apiListLeadTasks, apiListContractTasks, apiCreateTask, apiUpdateTask, apiDeleteTask } from '../utils/api'
 import { ContractModal, ReviewModal } from './ContractModals'
 import TaskModal from './TaskModal'
+import ConfirmModal, { AlertModal } from './ConfirmModal'
 
 function InfoRow({ icon, label, value }) {
   if (!value) return null
@@ -622,7 +623,8 @@ function BankContractsSection({ lead, settings, onRefreshLead, onTaskCreated, re
   const [addModal, setAddModal]         = useState(false)
   const [loading, setLoading]           = useState(true)
   const [showReport, setShowReport]     = useState(false)
-  const [newContractForTask, setNewContractForTask] = useState(null) // contrato recém-criado aguardando tarefa
+  const [newContractForTask, setNewContractForTask] = useState(null)
+  const [confirmContract, setConfirmContract] = useState(null) // contrato a excluir
 
   const loadContracts = useCallback(() => {
     setLoading(true)
@@ -650,7 +652,6 @@ function BankContractsSection({ lead, settings, onRefreshLead, onTaskCreated, re
   }
 
   const handleDelete = async (contract) => {
-    if (!window.confirm(`Remover contrato ${contract.bank || ''}?`)) return
     await apiDeleteContract(lead.id, contract.id)
     setContracts(prev => prev.filter(c => c.id !== contract.id))
     onRefreshLead?.()
@@ -747,12 +748,21 @@ function BankContractsSection({ lead, settings, onRefreshLead, onTaskCreated, re
               lead={lead}
               responsibles={responsibles}
               onUpdate={(data) => handleUpdate(c, data)}
-              onDelete={() => handleDelete(c)}
+              onDelete={() => setConfirmContract(c)}
               onTaskCreated={onTaskCreated}
             />
           ))}
         </div>
       </div>
+
+      <ConfirmModal
+        open={!!confirmContract}
+        title="Remover contrato"
+        message={confirmContract ? `Remover contrato ${[confirmContract.bank, confirmContract.type].filter(Boolean).join(' · ')}?` : ''}
+        confirmLabel="Remover"
+        onConfirm={() => { const c = confirmContract; setConfirmContract(null); handleDelete(c) }}
+        onCancel={() => setConfirmContract(null)}
+      />
     </>
   )
 }
@@ -768,14 +778,15 @@ const TASK_TYPE_ICONS = {
   'Outro':                 'ti-checkbox',
 }
 
-function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, onTaskEdited, refreshToken }) {
+export function LeadTasksPanel({ lead, settings, onTaskCreated, onContractUpdate, onTaskEdited, onTaskDeleted, refreshToken, onPendingCount }) {
   const responsibles = settings?.responsibles ? JSON.parse(settings.responsibles) : ['Riquelme', 'Daniel']
   const taskTypes    = settings?.taskTypes    ? JSON.parse(settings.taskTypes)    : null
   const [tasks,        setTasks]        = useState([])
   const [loading,      setLoading]      = useState(true)
   const [newModal,     setNewModal]     = useState(false)
   const [editTask,     setEditTask]     = useState(null)
-  const [resolveTask,  setResolveTask]  = useState(null)  // tarefa auto aguardando resolução
+  const [resolveTask,  setResolveTask]  = useState(null)
+  const [confirmTask,  setConfirmTask]  = useState(null)
   const [reagendModal, setReagendModal] = useState(null)  // { task, prefillType, prefillDesc }
   const [reviewModal,  setReviewModal]  = useState(null)  // contrato a revisar
   const [reviewTask,   setReviewTask]   = useState(null)  // task original que abriu o reviewModal
@@ -877,7 +888,7 @@ function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, onT
     }
   }
   const handleDelete = async (task) => {
-    if (!window.confirm('Excluir esta tarefa?')) return
+    onTaskDeleted?.(task.id)
     await apiDeleteTask(task.id)
     await load()
     onTaskCreated?.()
@@ -901,6 +912,9 @@ function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, onT
 
   const pending = tasks.filter(t => t.status !== 'done')
   const done    = tasks.filter(t => t.status === 'done')
+
+  // Notifica o pai sobre contagem de pendentes
+  useEffect(() => { onPendingCount?.(pending.length) }, [pending.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Classifica cada tarefa pendente
   function classifyTask(t) {
@@ -934,91 +948,85 @@ function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, onT
 
   return (
     <>
-    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)', padding: '18px 20px' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: pending.length > 0 ? 14 : 0 }}>
-        <i className="ti ti-checkbox" style={{ fontSize: 16, color: 'var(--color-blue-mid)' }} />
-        <span style={{ fontSize: 14, fontWeight: 600 }}>Tarefas</span>
-        {pending.length > 0 && (
-          <span style={{ fontSize: 11, background: 'var(--color-blue-bg)', color: 'var(--color-blue-dark)', padding: '2px 8px', borderRadius: 99, fontWeight: 600 }}>
-            {pending.length} pendente{pending.length !== 1 ? 's' : ''}
-          </span>
-        )}
-      </div>
+    <div>
+      {/* Botão nova tarefa */}
+      <button
+        onClick={() => setNewModal(true)}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          width: '100%', padding: '8px 0', marginBottom: 12,
+          borderRadius: 'var(--radius-md)',
+          border: 'none',
+          background: 'var(--color-blue-mid)', color: '#fff',
+          fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          boxShadow: '0 1px 4px rgba(14,74,120,0.18)',
+          transition: 'opacity 0.15s',
+        }}
+        onMouseEnter={e => e.currentTarget.style.opacity = '0.88'}
+        onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+      >
+        <i className="ti ti-plus" style={{ fontSize: 13 }} /> Nova Tarefa
+      </button>
 
       {loading ? (
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-hint)', textAlign: 'center', padding: '12px 0' }}>Carregando…</p>
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-hint)', textAlign: 'center', padding: '16px 0' }}>Carregando…</p>
       ) : pending.length === 0 && done.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--color-text-hint)' }}>
-          <i className="ti ti-circle-check" style={{ fontSize: 28, display: 'block', marginBottom: 6 }} />
-          <p style={{ margin: 0, fontSize: 13 }}>Nenhuma tarefa pendente.</p>
+        <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--color-text-hint)' }}>
+          <i className="ti ti-circle-check" style={{ fontSize: 24, display: 'block', marginBottom: 6 }} />
+          <p style={{ margin: 0, fontSize: 12 }}>Nenhuma tarefa pendente.</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {sorted.map(task => {
-            const col  = TASK_COL[classifyTask(task)]
-            const icon = TASK_TYPE_ICONS[task.type] || 'ti-checkbox'
+            const col    = TASK_COL[classifyTask(task)]
+            const icon   = TASK_TYPE_ICONS[task.type] || 'ti-checkbox'
             const isAuto = !!(task.isAuto && task.contract_id)
-            const dateStr = task.dueDate ? task.dueDate.split('-').reverse().join('/') + (task.dueTime && task.dueTime !== '0' ? ` às ${task.dueTime}` : '') : null
+            const dateStr = task.dueDate
+              ? task.dueDate.split('-').reverse().join('/') + (task.dueTime && task.dueTime !== '0' ? ` ${task.dueTime}` : '')
+              : null
             return (
-              <div key={task.id} style={{ borderRadius: 'var(--radius-lg)', border: `1px solid ${col.border}`, background: col.bg, overflow: 'hidden' }}>
-                {/* Linha colorida topo */}
-                <div style={{ height: 3, background: col.color, opacity: 0.5 }} />
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px' }}>
-                  {/* Botão concluir */}
-                  <button
-                    onClick={() => handleDone(task)}
-                    title="Concluir"
-                    style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${col.color}`, background: 'transparent', cursor: 'pointer', flexShrink: 0, marginTop: 1, opacity: 0.7, transition: 'opacity 0.15s' }}
-                    onMouseEnter={e => e.currentTarget.style.opacity = 1}
-                    onMouseLeave={e => e.currentTarget.style.opacity = 0.7}
-                  />
-                  {/* Conteúdo */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                      <i className={`ti ${icon}`} style={{ fontSize: 12, color: col.color }} />
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)' }}>{task.type}</span>
-                      {isAuto && (
-                        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: '#EDE9FE', color: '#7C3AED', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
-                          <i className="ti ti-file-description" style={{ fontSize: 10 }} />
-                          {task.contract_bank || 'Contrato'}{task.contract_type ? ` · ${task.contract_type}` : ''}
-                        </span>
-                      )}
-                    </div>
-                    {task.description && <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>{task.description}</p>}
-                    <div style={{ display: 'flex', gap: 10, marginTop: 5, flexWrap: 'wrap', alignItems: 'center' }}>
-                      {dateStr && (
-                        <span style={{ fontSize: 11, color: col.color, display: 'flex', alignItems: 'center', gap: 3, fontWeight: 500 }}>
-                          <i className={`ti ${col.icon}`} style={{ fontSize: 11 }} />{dateStr}
-                        </span>
-                      )}
-                      {task.assignedTo && (
-                        <span style={{ fontSize: 11, color: 'var(--color-text-hint)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                          <i className="ti ti-user" style={{ fontSize: 11 }} />{task.assignedTo}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {/* Ações */}
-                  <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                    <button onClick={() => setEditTask(task)} title="Editar" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 5px', color: 'var(--color-text-hint)', fontSize: 14, borderRadius: 6, transition: 'background 0.15s' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,0,0,0.06)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                      <i className="ti ti-pencil" />
-                    </button>
-                    <button
-                      onClick={() => !isAuto && handleDelete(task)}
-                      title={isAuto ? 'Tarefa automática — não pode ser excluída' : 'Excluir'}
-                      style={{ background: 'none', border: 'none', padding: '4px 5px', fontSize: 14, borderRadius: 6, transition: 'background 0.15s',
-                        color: isAuto ? 'var(--color-text-hint)' : 'var(--color-text-hint)',
-                        opacity: isAuto ? 0.35 : 1,
-                        cursor: isAuto ? 'not-allowed' : 'pointer',
-                      }}
-                      onMouseEnter={e => { if (!isAuto) e.currentTarget.style.background = 'rgba(0,0,0,0.06)' }}
-                      onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                      <i className={isAuto ? 'ti ti-trash-off' : 'ti ti-trash'} />
-                    </button>
-                  </div>
+              <div key={task.id} style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '7px 10px',
+                borderRadius: 'var(--radius-md)',
+                border: `1px solid ${col.border}`,
+                background: col.bg,
+                borderLeft: `3px solid ${col.color}`,
+                minHeight: 36,
+              }}>
+                {/* Concluir */}
+                <button
+                  onClick={() => handleDone(task)}
+                  title="Concluir"
+                  style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${col.color}`, background: 'transparent', cursor: 'pointer', flexShrink: 0, opacity: 0.6, transition: 'opacity 0.15s, background 0.15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.background = col.color + '22' }}
+                  onMouseLeave={e => { e.currentTarget.style.opacity = 0.6; e.currentTarget.style.background = 'transparent' }}
+                />
+                {/* Ícone tipo */}
+                <i className={`ti ${icon}`} style={{ fontSize: 12, color: col.color, flexShrink: 0 }} />
+                {/* Texto */}
+                <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                    {task.type}{isAuto ? ' · Contrato' : ''}
+                  </span>
+                  {dateStr && (
+                    <span style={{ fontSize: 11, color: col.color, fontWeight: 500 }}>{dateStr}</span>
+                  )}
+                </div>
+                {/* Ações */}
+                <div style={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+                  <button onClick={() => setEditTask(task)} title="Editar"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '3px 4px', color: 'var(--color-text-hint)', fontSize: 12, borderRadius: 4 }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,0,0,0.06)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                    <i className="ti ti-pencil" />
+                  </button>
+                  <button onClick={() => !isAuto && setConfirmTask(task)} title={isAuto ? 'Automática' : 'Excluir'}
+                    style={{ background: 'none', border: 'none', padding: '3px 4px', fontSize: 12, borderRadius: 4, opacity: isAuto ? 0.3 : 1, cursor: isAuto ? 'not-allowed' : 'pointer', color: 'var(--color-text-hint)' }}
+                    onMouseEnter={e => { if (!isAuto) e.currentTarget.style.background = 'rgba(0,0,0,0.06)' }}
+                    onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                    <i className={isAuto ? 'ti ti-trash-off' : 'ti ti-trash'} />
+                  </button>
                 </div>
               </div>
             )
@@ -1026,30 +1034,21 @@ function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, onT
 
           {/* Histórico colapsável */}
           {done.length > 0 && (
-            <div style={{ marginTop: 4 }}>
-              <button
-                onClick={() => setShowDone(v => !v)}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 2px', color: 'var(--color-text-hint)', fontSize: 12, fontWeight: 500 }}
-              >
-                <i className={`ti ${showDone ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ fontSize: 13 }} />
-                {showDone ? 'Ocultar' : 'Ver'} histórico ({done.length} concluída{done.length !== 1 ? 's' : ''})
+            <div style={{ marginTop: 6 }}>
+              <button onClick={() => setShowDone(v => !v)}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: '3px 2px', color: 'var(--color-text-hint)', fontSize: 11, fontWeight: 500 }}>
+                <i className={`ti ${showDone ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ fontSize: 11 }} />
+                {showDone ? 'Ocultar' : 'Ver'} histórico ({done.length})
               </button>
               {showDone && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 6 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 4 }}>
                   {[...done].reverse().map(task => {
                     const icon = TASK_TYPE_ICONS[task.type] || 'ti-checkbox'
-                    const dateStr = task.dueDate ? task.dueDate.split('-').reverse().join('/') + (task.dueTime && task.dueTime !== '0' ? ` às ${task.dueTime}` : '') : null
                     return (
-                      <div key={task.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', opacity: 0.7 }}>
-                        <i className="ti ti-circle-check" style={{ fontSize: 15, color: '#15803D', flexShrink: 0, marginTop: 1 }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <i className={`ti ${icon}`} style={{ fontSize: 11, color: 'var(--color-text-hint)' }} />
-                            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', textDecoration: 'line-through' }}>{task.type}</span>
-                          </div>
-                          {task.description && <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-text-hint)' }}>{task.description}</p>}
-                          {dateStr && <span style={{ fontSize: 11, color: 'var(--color-text-hint)' }}>{dateStr}</span>}
-                        </div>
+                      <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--color-bg)', opacity: 0.65 }}>
+                        <i className="ti ti-circle-check" style={{ fontSize: 12, color: '#15803D', flexShrink: 0 }} />
+                        <i className={`ti ${icon}`} style={{ fontSize: 11, color: 'var(--color-text-hint)', flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', textDecoration: 'line-through', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.type}</span>
                       </div>
                     )
                   })}
@@ -1068,28 +1067,6 @@ function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, onT
       )}
     </div>
 
-    {/* Botão flutuante Nova Tarefa — oculto quando qualquer modal estiver aberto */}
-    {!newModal && !editTask && !resolveTask && !reagendModal && !reviewModal && <button
-      onClick={() => setNewModal(true)}
-      style={{
-        position: 'fixed', bottom: 28, right: 28, zIndex: 200,
-        display: 'flex', alignItems: 'center', gap: 7,
-        padding: '11px 20px',
-        borderRadius: 'var(--radius-full)',
-        background: 'var(--color-blue-mid)',
-        color: '#fff',
-        border: 'none',
-        fontSize: 13, fontWeight: 600,
-        boxShadow: '0 4px 16px rgba(14,74,120,0.35)',
-        cursor: 'pointer',
-        transition: 'transform 0.15s, box-shadow 0.15s',
-      }}
-      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(14,74,120,0.45)' }}
-      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(14,74,120,0.35)' }}
-    >
-      <i className="ti ti-plus" style={{ fontSize: 15 }} />
-      Nova Tarefa
-    </button>}
 
       {/* Diálogo de resolução de tarefa automática */}
       {resolveTask && (
@@ -1152,6 +1129,15 @@ function LeadTasksSection({ lead, settings, onTaskCreated, onContractUpdate, onT
           onClose={handleReviewClose}
         />
       )}
+
+      <ConfirmModal
+        open={!!confirmTask}
+        title="Excluir tarefa"
+        message="Esta tarefa será removida permanentemente."
+        confirmLabel="Excluir"
+        onConfirm={() => { const t = confirmTask; setConfirmTask(null); handleDelete(t) }}
+        onCancel={() => setConfirmTask(null)}
+      />
     </>
   )
 }
@@ -1167,8 +1153,10 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
   const [showLossModal, setShowLossModal]         = useState(false)
   const [contractDataModal, setContractDataModal] = useState(false)
   const [contractDataForm, setContractDataForm]   = useState({})
+  const birthDateRef = useRef(null)
   const [taskRefreshToken, setTaskRefreshToken]   = useState(0)
   const bumpTaskRefresh = useCallback(() => setTaskRefreshToken(v => v + 1), [])
+  const [alertMsg, setAlertMsg] = useState(null)
 
   const CONTRACT_REQUIRED = ['name', 'cpf', 'address']
   const CONTRACT_OPTIONAL = ['rg', 'birthDate', 'email']
@@ -1220,14 +1208,14 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
       try {
         const list = await apiListContracts(lead.id)
         if (list.length === 0) {
-          alert('Adicione pelo menos um contrato bancário antes de avançar o lead nesta etapa.')
+          setAlertMsg({ title: 'Contrato necessário', message: 'Adicione pelo menos um contrato bancário antes de avançar o lead nesta etapa.' })
           return
         }
         if (BLOCKED_NEGOCIACAO.includes(step)) {
           const hasRevisado = list.some(c => c.status === 'Contrato revisado')
           const totalEmbutido = list.reduce((sum, c) => sum + (parseFloat(c.embeddedValue) || 0), 0)
           if (!hasRevisado || totalEmbutido <= 0) {
-            alert('Para avançar para Negociação é necessário ter pelo menos um contrato revisado e valor embutido total maior que zero.')
+            setAlertMsg({ title: 'Revisão necessária', message: 'Para avançar para Negociação é necessário ter pelo menos um contrato revisado e valor embutido total maior que zero.' })
             return
           }
         }
@@ -1250,7 +1238,7 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
     if (!lead.name)    missing.push('Nome')
     if (!lead.cpf)     missing.push('CPF')
     if (!lead.address) missing.push('Endereço')
-    if (missing.length) { alert(`Para gerar o contrato faltam: ${missing.join(', ')}.`); return }
+    if (missing.length) { setAlertMsg({ title: 'Dados incompletos', message: `Para gerar o contrato faltam: ${missing.join(', ')}.` }); return }
     const doc = generateContractPDF(lead, settings)
     const filename = `Contrato_${(lead.name || 'lead').replace(/\s+/g, '_')}.pdf`
     if (action === 'preview') {
@@ -1396,89 +1384,120 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
       {/* ── Contratos bancários ───────────────────────────────────────────── */}
       {!isNewLead && <BankContractsSection lead={lead} settings={settings} onRefreshLead={onRefresh} onTaskCreated={() => { bumpTaskRefresh(); onRefresh() }} refreshToken={taskRefreshToken} />}
 
-      {/* ── Tarefas ───────────────────────────────────────────────────────── */}
-      <LeadTasksSection
-        lead={lead}
-        settings={settings}
-        refreshToken={taskRefreshToken}
-        onTaskCreated={() => { bumpTaskRefresh(); onRefresh() }}
-        onTaskEdited={onTaskEdited}
-        onContractUpdate={async (contractId, data) => {
-          await apiUpdateContract(lead.id, contractId, data)
-          bumpTaskRefresh()
-          onRefresh()
-        }}
-      />
 
       {/* ── Popup dados do contrato ───────────────────────────────────────── */}
       {contractDataModal && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
           onClick={() => setContractDataModal(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: '24px 22px', maxWidth: 480, width: '100%', boxShadow: '0 16px 48px rgba(0,0,0,0.22)', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--color-blue-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <i className="ti ti-file-signature" style={{ fontSize: 17, color: 'var(--color-blue-dark)' }} />
-              </div>
-              <div>
-                <p style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Dados para contrato</p>
-                <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-secondary)' }}>Usados para gerar o PDF de assessoria</p>
-              </div>
-            </div>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 460, boxShadow: '0 24px 64px rgba(0,0,0,0.22)', position: 'relative' }}>
+            <button onClick={() => setContractDataModal(false)} style={{ position: 'absolute', top: 14, right: 14, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-hint)', fontSize: 18, lineHeight: 1, padding: 4, zIndex: 1 }}>
+              <i className="ti ti-x" />
+            </button>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
-                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>Nome completo <span style={{ color: 'var(--color-red-mid)' }}>*</span></label>
-                <input value={contractDataForm.name} onChange={e => setContractDataForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" style={{ fontSize: 13 }} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>CPF <span style={{ color: 'var(--color-red-mid)' }}>*</span></label>
-                <input value={contractDataForm.cpf} onChange={e => setContractDataForm(f => ({ ...f, cpf: fmtCpf(e.target.value) }))} placeholder="000.000.000-00" inputMode="numeric" maxLength={14} style={{ fontSize: 13 }} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>RG</label>
-                <input value={contractDataForm.rg} onChange={e => setContractDataForm(f => ({ ...f, rg: e.target.value }))} placeholder="00.000.000 SSP/UF" style={{ fontSize: 13 }} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
-                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>Endereço completo <span style={{ color: 'var(--color-red-mid)' }}>*</span></label>
-                <input value={contractDataForm.address} onChange={e => setContractDataForm(f => ({ ...f, address: e.target.value }))} placeholder="Rua Caxias do Sul, 471, Centro, Palmeira das Missões - RS" style={{ fontSize: 13 }} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>E-mail <span style={{ fontWeight: 400, color: 'var(--color-text-hint)', fontSize: 10 }}>— Autentique</span></label>
-                <input type="email" value={contractDataForm.email} onChange={e => setContractDataForm(f => ({ ...f, email: e.target.value }))} placeholder="cliente@email.com" style={{ fontSize: 13 }} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>Data de nascimento</label>
-                <input type="date" value={contractDataForm.birthDate} onChange={e => setContractDataForm(f => ({ ...f, birthDate: e.target.value }))} style={{ fontSize: 13 }} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, gridColumn: '1 / -1' }}>
-                <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)' }}>Percentual cobrado: <strong>{contractDataForm.feePercent ?? 50}%</strong> <span style={{ fontWeight: 400, color: 'var(--color-text-hint)', fontSize: 10 }}>— Entre 20% e 50%</span></label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <input type="range" min="20" max="50" step="1"
-                    value={contractDataForm.feePercent ?? 50}
-                    onChange={e => setContractDataForm(f => ({ ...f, feePercent: Number(e.target.value) }))}
-                    style={{ flex: 1 }}
-                  />
-                  <input type="number" min="20" max="50"
-                    value={contractDataForm.feePercent ?? 50}
-                    onChange={e => {
-                      let v = Number(e.target.value)
-                      if (isNaN(v)) v = 50
-                      v = Math.max(20, Math.min(50, v))
-                      setContractDataForm(f => ({ ...f, feePercent: v }))
-                    }}
-                    style={{ width: 72, textAlign: 'center', fontSize: 13 }}
-                  />
+            <div style={{ padding: '28px 24px 28px', display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 24 }}>
+
+              {/* Header */}
+              <div style={{ alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--color-blue-bg)', borderRadius: 99, padding: '6px 14px 6px 6px' }}>
+                <div style={{ width: 28, height: 28, borderRadius: 99, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+                  <i className="ti ti-file-signature" style={{ fontSize: 14, color: 'var(--color-blue-mid)' }} />
                 </div>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: 'var(--color-blue-mid)' }}>Dados para contrato</p>
               </div>
-            </div>
 
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-              <button type="button" onClick={() => setContractDataModal(false)} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: '1px solid var(--color-border)', background: 'transparent', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
-                Cancelar
-              </button>
-              <button type="button" onClick={saveContractData} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: 'var(--color-blue-mid)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                Salvar dados
-              </button>
+              {/* Campos */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                {/* Nome */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-hint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Nome completo *</span>
+                  <input value={contractDataForm.name} onChange={e => setContractDataForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" style={{ fontSize: 13 }} />
+                </div>
+
+                {/* CPF + RG — 50/50 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: 'var(--color-text-hint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>CPF *</span>
+                    <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: 'var(--color-text-hint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>RG</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input value={contractDataForm.cpf} onChange={e => setContractDataForm(f => ({ ...f, cpf: fmtCpf(e.target.value) }))} placeholder="000.000.000-00" inputMode="numeric" maxLength={14} style={{ flex: 1, fontSize: 13 }} />
+                    <input value={contractDataForm.rg} onChange={e => setContractDataForm(f => ({ ...f, rg: e.target.value }))} placeholder="00.000.000-0" style={{ flex: 1, fontSize: 13 }} />
+                  </div>
+                </div>
+
+                {/* Endereço */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-hint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Endereço completo *</span>
+                  <input value={contractDataForm.address} onChange={e => setContractDataForm(f => ({ ...f, address: e.target.value }))} placeholder="Rua, número, bairro, cidade - UF" style={{ fontSize: 13 }} />
+                </div>
+
+                {/* E-mail + Nascimento — 50/50 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: 'var(--color-text-hint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>E-mail</span>
+                    <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: 'var(--color-text-hint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Nascimento</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input type="email" value={contractDataForm.email} onChange={e => setContractDataForm(f => ({ ...f, email: e.target.value }))} placeholder="cliente@email.com" style={{ flex: 1, fontSize: 13 }} />
+                    <div style={{ flex: 1, position: 'relative' }}>
+                      {(() => {
+                        const bd = contractDataForm.birthDate
+                        const ms = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']
+                        const fmtBd = bd ? (() => { const [y,m,d] = bd.split('-').map(Number); return `${d} ${ms[m-1]} ${y}` })() : null
+                        return (
+                          <button type="button" onClick={() => birthDateRef.current?.showPicker?.() || birthDateRef.current?.click()} style={{
+                            display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+                            padding: '8px 10px', borderRadius: 8, border: '1.5px solid var(--color-border)',
+                            background: '#fff', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
+                            color: fmtBd ? 'var(--color-text-primary)' : 'var(--color-text-hint)', outline: 'none',
+                          }}>
+                            <i className="ti ti-calendar" style={{ fontSize: 13, color: 'var(--color-blue-mid)', flexShrink: 0 }} />
+                            <span>{fmtBd || 'Selecionar…'}</span>
+                          </button>
+                        )
+                      })()}
+                      <input ref={birthDateRef} type="date" value={contractDataForm.birthDate || ''} onChange={e => setContractDataForm(f => ({ ...f, birthDate: e.target.value }))}
+                        style={{ position: 'absolute', left: 0, top: 0, opacity: 0, width: '100%', height: '100%', pointerEvents: 'none', border: 'none', padding: 0 }}
+                        tabIndex={-1}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Percentual */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-hint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Percentual cobrado — <strong style={{ color: 'var(--color-text-primary)' }}>{contractDataForm.feePercent ?? 50}%</strong></span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <input type="range" min="20" max="50" step="1"
+                      value={contractDataForm.feePercent ?? 50}
+                      onChange={e => setContractDataForm(f => ({ ...f, feePercent: Number(e.target.value) }))}
+                      style={{ flex: 1 }}
+                    />
+                    <input type="number" min="20" max="50"
+                      value={contractDataForm.feePercent ?? 50}
+                      onChange={e => {
+                        let v = Number(e.target.value)
+                        if (isNaN(v)) v = 50
+                        v = Math.max(20, Math.min(50, v))
+                        setContractDataForm(f => ({ ...f, feePercent: v }))
+                      }}
+                      style={{ width: 64, textAlign: 'center', fontSize: 13 }}
+                    />
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Footer */}
+              <div style={{ alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 99, padding: '4px 5px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+                <button type="button" onClick={() => setContractDataModal(false)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 99, border: 'none', background: 'transparent', fontSize: 13, color: 'var(--color-text-secondary)', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  <i className="ti ti-x" style={{ fontSize: 13 }} />Cancelar
+                </button>
+                <button type="button" onClick={saveContractData} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 18px', borderRadius: 99, border: 'none', background: 'var(--color-blue-mid)', fontSize: 13, color: '#fff', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(14,74,120,0.25)' }}>
+                  <i className="ti ti-check" style={{ fontSize: 13 }} />Salvar dados
+                </button>
+              </div>
+
             </div>
           </div>
         </div>
@@ -1564,6 +1583,12 @@ export default function LeadDetail({ lead, settings, onEdit, onDelete, onStatusC
         </div>
       )}
 
+      <AlertModal
+        open={!!alertMsg}
+        title={alertMsg?.title}
+        message={alertMsg?.message}
+        onClose={() => setAlertMsg(null)}
+      />
 
     </div>
   )

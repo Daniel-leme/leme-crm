@@ -4,21 +4,57 @@ import {
   apiListLeads, apiCreateLead, apiUpdateLead, apiDeleteLead,
   apiGetSettings, apiUpdateSettings, apiHealth,
   apiListOperations, apiUpdateOperation,
-  apiListTasks,
+  apiListTasks, apiUpdateContract,
 } from './utils/api'
 import LeadList       from './components/LeadList'
+import ConfirmModal, { AlertModal } from './components/ConfirmModal'
 import LeadForm       from './components/LeadForm'
-import LeadDetail     from './components/LeadDetail'
+import LeadDetail, { LeadTasksPanel } from './components/LeadDetail'
 import Settings       from './components/Settings'
 import LemeLogo       from './components/LemeLogo'
 import OperationList  from './components/OperationList'
 import OperationDetail from './components/OperationDetail'
 import TaskList       from './components/TaskList'
+import NewLeadModal   from './components/NewLeadModal'
 import { NotificationBell, NotificationToasts } from './components/NotificationCenter'
 import { useNotifications } from './hooks/useNotifications'
 
 const SIDEBAR_W   = 230
 const CONTENT_MAX = 920
+
+function TaskSidePanel({ lead, settings, onTaskCreated, onTaskEdited, onTaskDeleted, onContractUpdate }) {
+  const [pendingCount, setPendingCount] = useState(0)
+  return (
+    <aside style={{
+      width: 290, flexShrink: 0,
+      borderLeft: '1px solid var(--color-border)',
+      background: 'var(--color-surface)',
+      display: 'flex', flexDirection: 'column',
+      overflow: 'hidden',
+    }}>
+      <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <i className="ti ti-checkbox" style={{ fontSize: 15, color: 'var(--color-blue-mid)' }} />
+        <span style={{ fontSize: 13, fontWeight: 600 }}>Tarefas</span>
+        {pendingCount > 0 && (
+          <span style={{ fontSize: 11, background: 'var(--color-blue-bg)', color: 'var(--color-blue-dark)', padding: '1px 7px', borderRadius: 99, fontWeight: 600, marginLeft: 'auto' }}>
+            {pendingCount}
+          </span>
+        )}
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+        <LeadTasksPanel
+          lead={lead}
+          settings={settings}
+          onTaskCreated={onTaskCreated}
+          onTaskEdited={onTaskEdited}
+          onTaskDeleted={onTaskDeleted}
+          onPendingCount={setPendingCount}
+          onContractUpdate={onContractUpdate}
+        />
+      </div>
+    </aside>
+  )
+}
 
 function useIsMobile() {
   const [mobile, setMobile] = useState(window.innerWidth < 768)
@@ -41,6 +77,8 @@ export default function App() {
   const [form,         setForm]         = useState(emptyLead())
   const [saving,       setSaving]       = useState(false)
   const [connState,    setConnState]    = useState('checking')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [alertMsg, setAlertMsg] = useState(null) // { title, message }
   const [menuOpen,     setMenuOpen]     = useState(false)
   const isMobile = useIsMobile()
 
@@ -72,14 +110,15 @@ export default function App() {
   }, [])
 
   // Central de notificações
-  const { notifications, unreadCount, toasts, dismissToast, clearNotifications, clearFiredForTask } = useNotifications(tasks)
+  const { notifications, unreadCount, toasts, dismissToast, clearNotifications, removeNotificationsForTask, clearFiredForTask } = useNotifications(tasks)
 
   useEffect(() => { setMenuOpen(false) }, [view])
 
   const flashSaving = () => { setSaving(true); setTimeout(() => setSaving(false), 900) }
 
   // ── Leads ──────────────────────────────────────────────────────────────────
-  const openNew      = ()     => { setForm(emptyLead()); setView('form') }
+  const [newLeadOpen, setNewLeadOpen] = useState(false)
+  const openNew      = ()     => { setForm(emptyLead()); setNewLeadOpen(true) }
   const openEdit     = (lead) => { setForm({ ...lead }); setView('form') }
   const openDetail   = (lead) => { setSelectedId(lead.id); setView('detail') }
   const openSettings = ()     => { setView('settings') }
@@ -87,23 +126,44 @@ export default function App() {
   const goOperations = ()     => { setView('operations'); setSelectedId(null); setSelectedOpId(null) }
   const goTasks      = ()     => { setView('tasks'); setSelectedId(null); setSelectedOpId(null) }
 
+  const showAlert = (title, message) => setAlertMsg({ title, message })
+
   const submitForm = async () => {
-    if (!form.phone.trim()) { alert('O telefone/WhatsApp é obrigatório.'); return }
-    if (!form.source.trim()) { alert('A origem é obrigatória.'); return }
+    if (!form.phone.trim()) { showAlert('Campo obrigatório', 'O telefone/WhatsApp é obrigatório.'); return }
+    if (!form.source.trim()) { showAlert('Campo obrigatório', 'A origem é obrigatória.'); return }
     const finalForm = { ...form, name: form.name.trim() || 'Sem nome', responsible: form.responsible || 'Riquelme' }
     const exists = leads.some(l => l.id === form.id)
     try {
       const saved = exists ? await apiUpdateLead(finalForm.id, finalForm) : await apiCreateLead(finalForm)
       flashSaving()
       await refresh()
-      if (exists) { setSelectedId(saved.id); setView('detail') } else goList()
-    } catch (e) { alert(`Erro ao salvar: ${e.message}`) }
+      if (exists) { setSelectedId(saved.id); setView('detail') }
+    } catch (e) { showAlert('Erro ao salvar', e.message) }
+  }
+
+  const submitNewLead = async (data) => {
+    try {
+      await apiCreateLead({ ...emptyLead(), ...data })
+      flashSaving()
+      await refresh()
+      setNewLeadOpen(false)
+    } catch (e) { showAlert('Erro ao salvar', e.message) }
+  }
+
+  const submitNewLeadAndOpen = async (data) => {
+    try {
+      const saved = await apiCreateLead({ ...emptyLead(), ...data })
+      flashSaving()
+      await refresh()
+      setNewLeadOpen(false)
+      setSelectedId(saved.id)
+      setView('detail')
+    } catch (e) { showAlert('Erro ao salvar', e.message) }
   }
 
   const deleteLead = async () => {
-    if (!window.confirm('Excluir este lead permanentemente?')) return
     try { await apiDeleteLead(selectedId); flashSaving(); await refresh(); goList() }
-    catch (e) { alert(`Erro ao excluir: ${e.message}`) }
+    catch (e) { showAlert('Erro ao excluir', e.message) }
   }
 
   const changeStatus = async (action, lossReason) => {
@@ -119,12 +179,12 @@ export default function App() {
       await apiUpdateLead(selectedId, payload)
       flashSaving()
       await refresh()
-    } catch (e) { alert(`Erro: ${e.message}`) }
+    } catch (e) { showAlert('Erro', e.message) }
   }
 
   const saveSettings = async (newSettings) => {
     try { await apiUpdateSettings(newSettings); setSettings(newSettings); flashSaving() }
-    catch (e) { alert(`Erro ao salvar configurações: ${e.message}`) }
+    catch (e) { showAlert('Erro ao salvar configurações', e.message) }
   }
 
   // ── Operations ─────────────────────────────────────────────────────────────
@@ -143,12 +203,7 @@ export default function App() {
       await apiUpdateOperation(selectedOpId, payload)
       flashSaving()
       await refresh()
-    } catch (e) { alert(`Erro: ${e.message}`) }
-  }
-
-  const handleOperationSaved = async () => {
-    flashSaving()
-    await refresh()
+    } catch (e) { showAlert('Erro', e.message) }
   }
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -202,7 +257,6 @@ export default function App() {
     { icon: 'ti-briefcase',  label: 'Funil Comercial',    action: goList,       active: isCommercialView },
     { icon: 'ti-settings-2', label: 'Funil Operacional',  action: goOperations, active: isOperationsView },
     { icon: 'ti-checkbox',   label: 'Tarefas',            action: goTasks,      active: isTasksView, taskBadges },
-    { icon: 'ti-plus',       label: 'Novo Lead',          action: openNew,      active: false },
     { icon: 'ti-settings',   label: 'Configurações',      action: openSettings, active: view === 'settings' },
   ]
 
@@ -252,7 +306,21 @@ export default function App() {
         ))}
       </nav>
 
-      <div style={{ padding: '14px 20px 0', borderTop: '1px solid var(--color-border)' }}>
+      <div style={{ padding: '10px 10px 0' }}>
+        <button onClick={openNew} style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+          width: '100%', padding: '10px 0',
+          borderRadius: 'var(--radius-md)', border: 'none',
+          background: 'var(--color-blue-mid)', color: '#fff',
+          fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          boxShadow: '0 2px 8px rgba(21,101,192,0.25)',
+        }}>
+          <i className="ti ti-plus" style={{ fontSize: 16 }} aria-hidden="true" />
+          Novo Lead
+        </button>
+      </div>
+
+      <div style={{ padding: '12px 20px 0', borderTop: '1px solid var(--color-border)', marginTop: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: connState === 'online' ? '#28a745' : connState === 'offline' ? '#dc3545' : '#aaa', flexShrink: 0 }} />
           <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>
@@ -330,69 +398,83 @@ export default function App() {
               onClear={clearNotifications}
               onOpenLead={openLeadById}
             />
-            {view === 'list' && (
-              <button onClick={openNew} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: isMobile ? '7px 12px' : '7px 16px', borderRadius: 'var(--radius-md)', background: 'var(--color-blue-mid)', color: '#fff', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>
-                <i className="ti ti-plus" style={{ fontSize: 16 }} aria-hidden="true" />
-                {isMobile ? 'Novo' : 'Novo Lead'}
-              </button>
-            )}
           </div>
         </header>
 
         {/* Content */}
-        <div style={{ flex: 1, overflowY: 'scroll', padding: isMobile ? '16px' : '28px' }}>
-          <div style={{ maxWidth: CONTENT_MAX, margin: '0 auto' }}>
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
-            {connState === 'offline' && (
-              <div style={{ background: 'var(--color-red-bg)', color: 'var(--color-red-dark)', padding: '12px 16px', borderRadius: 'var(--radius-md)', marginBottom: 18, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <i className="ti ti-alert-triangle" />
-                Servidor offline. Confira se o <code>iniciar.bat</code> está rodando.
-              </div>
-            )}
+          {/* Coluna principal */}
+          <div style={{ flex: 1, overflowY: 'scroll', padding: isMobile ? '16px' : '28px', minWidth: 0 }}>
+            <div style={{ maxWidth: CONTENT_MAX, margin: '0 auto' }}>
 
-            {view === 'list' && (
-              <LeadList leads={leads} tasks={tasks} onSelect={openDetail} onNew={openNew} />
-            )}
+              {connState === 'offline' && (
+                <div style={{ background: 'var(--color-red-bg)', color: 'var(--color-red-dark)', padding: '12px 16px', borderRadius: 'var(--radius-md)', marginBottom: 18, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <i className="ti ti-alert-triangle" />
+                  Servidor offline. Confira se o <code>iniciar.bat</code> está rodando.
+                </div>
+              )}
 
-            {view === 'form' && (
-              <LeadForm form={form} onChange={setForm} onSubmit={submitForm} onCancel={handleBack} isEditing={leads.some(l => l.id === form.id)} settings={settings} sidebarWidth={isMobile ? 0 : SIDEBAR_W} />
-            )}
+              {view === 'list' && (
+                <LeadList leads={leads} tasks={tasks} onSelect={openDetail} onNew={openNew} />
+              )}
 
-            {view === 'detail' && selected && settings && (
-              <LeadDetail
-                lead={selected}
-                settings={settings}
-                onEdit={() => openEdit(selected)}
-                onDelete={deleteLead}
-                onStatusChange={changeStatus}
-                onOpenOperation={openOperation}
-                onRefresh={refresh}
-                onTaskEdited={clearFiredForTask}
-              />
-            )}
+              {view === 'form' && (
+                <LeadForm form={form} onChange={setForm} onSubmit={submitForm} onCancel={handleBack} isEditing={leads.some(l => l.id === form.id)} settings={settings} sidebarWidth={isMobile ? 0 : SIDEBAR_W} />
+              )}
 
-            {view === 'settings' && settings && (
-              <Settings settings={settings} onSave={saveSettings} />
-            )}
+              {view === 'detail' && selected && settings && (
+                <LeadDetail
+                  lead={selected}
+                  settings={settings}
+                  onEdit={() => openEdit(selected)}
+                  onDelete={() => setConfirmDelete(true)}
+                  onStatusChange={changeStatus}
+                  onOpenOperation={openOperation}
+                  onRefresh={refresh}
+                  onTaskEdited={clearFiredForTask}
+                  onTaskDeleted={removeNotificationsForTask}
+                />
+              )}
 
-            {view === 'operations' && (
-              <OperationList operations={operations} onSelect={openOperation} />
-            )}
+              {view === 'settings' && settings && (
+                <Settings settings={settings} onSave={saveSettings} />
+              )}
 
-            {view === 'tasks' && settings && (
-              <TaskList leads={leads} onOpenLead={openDetail} settings={settings} onTaskChanged={refresh} onTaskEdited={clearFiredForTask} />
-            )}
+              {view === 'operations' && (
+                <OperationList operations={operations} onSelect={openOperation} />
+              )}
 
-            {view === 'operation-detail' && selectedOp && settings && (
-              <OperationDetail
-                operation={selectedOp}
-                settings={settings}
-                onStatusChange={changeOperationStatus}
-                onOpenLead={() => { setSelectedId(selectedOp.lead_id); setView('detail') }}
-                onSaved={handleOperationSaved}
-              />
-            )}
+              {view === 'tasks' && settings && (
+                <TaskList leads={leads} onOpenLead={openDetail} settings={settings} onTaskChanged={refresh} onTaskEdited={clearFiredForTask} onTaskDeleted={removeNotificationsForTask} />
+              )}
+
+              {view === 'operation-detail' && selectedOp && settings && (
+                <OperationDetail
+                  operation={selectedOp}
+                  settings={settings}
+                  onStatusChange={changeOperationStatus}
+                  onOpenLead={() => { setSelectedId(selectedOp.lead_id); setView('detail') }}
+                />
+              )}
+            </div>
           </div>
+
+          {/* Painel lateral de tarefas — só na view detail */}
+          {view === 'detail' && selected && settings && !isMobile && (
+            <TaskSidePanel
+              lead={selected}
+              settings={settings}
+              onTaskCreated={refresh}
+              onTaskEdited={clearFiredForTask}
+              onTaskDeleted={removeNotificationsForTask}
+              onContractUpdate={async (contractId, data) => {
+                await apiUpdateContract(selected.id, contractId, data)
+                refresh()
+              }}
+            />
+          )}
+
         </div>
 
         {/* ── Bottom nav mobile ──────────────────────────────────────────────── */}
@@ -419,6 +501,31 @@ export default function App() {
         toasts={toasts}
         onDismiss={dismissToast}
         onOpenLead={openLeadById}
+      />
+
+      {/* Modal de novo lead */}
+      <NewLeadModal
+        open={newLeadOpen}
+        onClose={() => setNewLeadOpen(false)}
+        onSubmit={submitNewLead}
+        onSubmitAndOpen={submitNewLeadAndOpen}
+        settings={settings}
+      />
+
+      <AlertModal
+        open={!!alertMsg}
+        title={alertMsg?.title}
+        message={alertMsg?.message}
+        onClose={() => setAlertMsg(null)}
+      />
+
+      <ConfirmModal
+        open={confirmDelete}
+        title="Excluir lead"
+        message="Esta ação é permanente e não pode ser desfeita."
+        confirmLabel="Excluir"
+        onConfirm={() => { setConfirmDelete(false); deleteLead() }}
+        onCancel={() => setConfirmDelete(false)}
       />
     </div>
   )

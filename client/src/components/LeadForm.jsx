@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { LEAD_SOURCES, COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, DEFAULT_BANKS, BANK_CONTRACT_TYPES, BANK_CONTRACT_STATUSES, BANK_CONTRACT_STATUS_META, fmtPhone, fmtCpf, fmtCurrency } from '../constants'
 import { apiListContracts, apiCreateContract, apiUpdateContract, apiDeleteContract } from '../utils/api'
 import { ContractModal, ReviewModal } from './ContractModals'
+import ConfirmModal, { AlertModal } from './ConfirmModal'
 
 function Field({ label, hint, children, full, half }) {
   const col = full ? '1 / -1' : half ? 'auto' : 'auto'
@@ -136,6 +137,7 @@ function ContractsBlock({ leadId, banks }) {
   const [contracts, setContracts] = useState([])
   const [loading, setLoading]     = useState(true)
   const [addModal, setAddModal]   = useState(false)
+  const [confirmContract, setConfirmContract] = useState(null)
 
   useEffect(() => {
     if (!leadId) { setLoading(false); return }
@@ -157,7 +159,6 @@ function ContractsBlock({ leadId, banks }) {
   }
 
   const handleDelete = async (contract) => {
-    if (!window.confirm(`Remover contrato ${contract.bank || ''}?`)) return
     await apiDeleteContract(leadId, contract.id)
     setContracts(prev => prev.filter(c => c.id !== contract.id))
   }
@@ -212,24 +213,35 @@ function ContractsBlock({ leadId, banks }) {
               contract={c}
               banks={banks}
               onUpdate={(data) => handleUpdate(c, data)}
-              onDelete={() => handleDelete(c)}
+              onDelete={() => setConfirmContract(c)}
             />
           ))}
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmContract}
+        title="Remover contrato"
+        message={confirmContract ? `Remover contrato ${[confirmContract.bank, confirmContract.type].filter(Boolean).join(' · ')}?` : ''}
+        confirmLabel="Remover"
+        onConfirm={() => { const c = confirmContract; setConfirmContract(null); handleDelete(c) }}
+        onCancel={() => setConfirmContract(null)}
+      />
     </>
   )
 }
 
-export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing, settings, sidebarWidth = 0 }) {
+export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing, settings, sidebarWidth = 0, inModal = false }) {
   const set = (key, value) => onChange({ ...form, [key]: value })
 
   const banks = settings?.banks ? JSON.parse(settings.banks) : DEFAULT_BANKS
-  const responsibles = settings?.responsibles ? JSON.parse(settings.responsibles) : ['Daniel', 'Riquelme']
+  const responsibles = settings?.responsibles ? JSON.parse(settings.responsibles) : ['Riquelme', 'Daniel']
   const leadSources = settings?.leadSources ? JSON.parse(settings.leadSources) : LEAD_SOURCES
 
   const isNewLead = form.status === 'Novo Lead'
   const hideAssessoria = ['Novo Lead', 'Qualificação', 'Qualificado', 'Revisão'].includes(form.status)
+
+  const [alertMsg, setAlertMsg] = useState(null)
 
   // Bloqueia avanço além de Qualificação se não houver contratos
   const BLOCKED_STATUSES = ['Qualificado', 'Revisão', 'Negociação', 'Contrato Assinado']
@@ -239,14 +251,14 @@ export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing
       try {
         const list = await apiListContracts(form.id)
         if (list.length === 0) {
-          alert('Adicione pelo menos um contrato bancário antes de avançar o lead nesta etapa.')
+          setAlertMsg({ title: 'Contrato necessário', message: 'Adicione pelo menos um contrato bancário antes de avançar o lead nesta etapa.' })
           return
         }
         if (BLOCKED_NEGOCIACAO.includes(newStatus)) {
           const hasRevisado = list.some(c => c.status === 'Contrato revisado')
           const totalEmbutido = list.reduce((sum, c) => sum + (parseFloat(c.embeddedValue) || 0), 0)
           if (!hasRevisado || totalEmbutido <= 0) {
-            alert('Para avançar para Negociação é necessário ter pelo menos um contrato revisado e valor embutido total maior que zero.')
+            setAlertMsg({ title: 'Revisão necessária', message: 'Para avançar para Negociação é necessário ter pelo menos um contrato revisado e valor embutido total maior que zero.' })
             return
           }
         }
@@ -280,7 +292,6 @@ export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 20, alignItems: 'start' }}>
           <Field label="Responsável">
             <div
-              onClick={() => set('responsible', form.responsible === 'Daniel' ? 'Riquelme' : 'Daniel')}
               style={{
                 display: 'inline-flex', alignItems: 'center',
                 background: 'var(--color-border)', borderRadius: 99,
@@ -288,10 +299,10 @@ export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing
                 width: 'fit-content', gap: 0,
               }}
             >
-              {['Daniel', 'Riquelme'].map(name => {
-                const active = (form.responsible || 'Riquelme') === name
+              {responsibles.map(name => {
+                const active = (form.responsible || responsibles[0]) === name
                 return (
-                  <span key={name} style={{
+                  <span key={name} onClick={() => set('responsible', name)} style={{
                     padding: '5px 14px', borderRadius: 99, fontSize: 13, fontWeight: active ? 600 : 400,
                     background: active ? 'var(--color-surface)' : 'transparent',
                     color: active ? 'var(--color-text-primary)' : 'var(--color-text-hint)',
@@ -478,39 +489,74 @@ export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing
         </div>
       )}
 
-      {/* Espaço para o conteúdo não ficar atrás dos botões flutuantes */}
-      <div style={{ height: 72 }} />
+      {/* Espaço para o conteúdo não ficar atrás dos botões flutuantes (só fora do modal) */}
+      {!inModal && <div style={{ height: 72 }} />}
 
-      {/* Actions — flutuantes, centralizados na área de conteúdo */}
-      <div style={{
-        position: 'fixed', bottom: 20, left: `calc(50vw + ${sidebarWidth / 2}px)`, transform: 'translateX(-50%)',
-        zIndex: 100, display: 'flex', gap: 8, alignItems: 'center',
-        background: 'var(--color-surface)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-full)',
-        padding: '6px 8px',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.13)',
-      }}>
-        <button type="button" onClick={onCancel} style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '7px 14px', borderRadius: 'var(--radius-full)',
-          border: 'none', background: 'transparent',
-          fontSize: 13, color: 'var(--color-text-secondary)', cursor: 'pointer',
-          fontWeight: 500,
+      {/* Actions */}
+      {inModal ? (
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+          <div style={{
+            display: 'inline-flex', gap: 8, alignItems: 'center',
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-full)',
+            padding: '6px 8px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.10)',
+          }}>
+            <button type="button" onClick={onCancel} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', borderRadius: 'var(--radius-full)',
+              border: 'none', background: 'transparent',
+              fontSize: 13, color: 'var(--color-text-secondary)', cursor: 'pointer', fontWeight: 500,
+            }}>
+              <i className="ti ti-x" style={{ fontSize: 14 }} />Cancelar
+            </button>
+            <button type="button" onClick={onSubmit} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 16px', borderRadius: 'var(--radius-full)',
+              border: 'none', background: 'var(--color-blue-mid)',
+              fontSize: 13, color: '#fff', fontWeight: 600, cursor: 'pointer',
+            }}>
+              <i className="ti ti-check" style={{ fontSize: 14 }} />Adicionar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          position: 'fixed', bottom: 20, left: `calc(50vw + ${sidebarWidth / 2}px)`, transform: 'translateX(-50%)',
+          zIndex: 100, display: 'flex', gap: 8, alignItems: 'center',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-full)',
+          padding: '6px 8px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.13)',
         }}>
-          <i className="ti ti-x" style={{ fontSize: 14 }} />
-          Cancelar
-        </button>
-        <button type="button" onClick={onSubmit} style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '7px 16px', borderRadius: 'var(--radius-full)',
-          border: 'none', background: 'var(--color-blue-mid)',
-          fontSize: 13, color: '#fff', fontWeight: 600, cursor: 'pointer',
-        }}>
-          <i className="ti ti-check" style={{ fontSize: 14 }} />
-          {isEditing ? 'Salvar' : 'Adicionar'}
-        </button>
-      </div>
+          <button type="button" onClick={onCancel} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 14px', borderRadius: 'var(--radius-full)',
+            border: 'none', background: 'transparent',
+            fontSize: 13, color: 'var(--color-text-secondary)', cursor: 'pointer', fontWeight: 500,
+          }}>
+            <i className="ti ti-x" style={{ fontSize: 14 }} />Cancelar
+          </button>
+          <button type="button" onClick={onSubmit} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 16px', borderRadius: 'var(--radius-full)',
+            border: 'none', background: 'var(--color-blue-mid)',
+            fontSize: 13, color: '#fff', fontWeight: 600, cursor: 'pointer',
+          }}>
+            <i className="ti ti-check" style={{ fontSize: 14 }} />
+            {isEditing ? 'Salvar' : 'Adicionar'}
+          </button>
+        </div>
+      )}
+
+      <AlertModal
+        open={!!alertMsg}
+        title={alertMsg?.title}
+        message={alertMsg?.message}
+        onClose={() => setAlertMsg(null)}
+      />
     </div>
   )
 }

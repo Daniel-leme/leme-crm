@@ -91,7 +91,7 @@ export default function Settings({ settings, onSave }) {
   const [form, setForm] = useState({
     ...settings,
     banks:        JSON.parse(settings.banks        || JSON.stringify(DEFAULT_BANKS)),
-    responsibles: JSON.parse(settings.responsibles || '["Daniel","Riquelme"]'),
+    responsibles: JSON.parse(settings.responsibles || '["Riquelme","Daniel"]'),
     lossReasons:  JSON.parse(settings.lossReasons  || JSON.stringify(LOSS_REASONS)),
     leadSources:  JSON.parse(settings.leadSources  || JSON.stringify(LEAD_SOURCES)),
     taskTypes:    JSON.parse(settings.taskTypes    || JSON.stringify(DEFAULT_TASK_TYPES)),
@@ -100,7 +100,7 @@ export default function Settings({ settings, onSave }) {
   const dirty = JSON.stringify(form) !== JSON.stringify({
     ...settings,
     banks:        JSON.parse(settings.banks        || JSON.stringify(DEFAULT_BANKS)),
-    responsibles: JSON.parse(settings.responsibles || '["Daniel","Riquelme"]'),
+    responsibles: JSON.parse(settings.responsibles || '["Riquelme","Daniel"]'),
     lossReasons:  JSON.parse(settings.lossReasons  || JSON.stringify(LOSS_REASONS)),
     leadSources:  JSON.parse(settings.leadSources  || JSON.stringify(LEAD_SOURCES)),
     taskTypes:    JSON.parse(settings.taskTypes    || JSON.stringify(DEFAULT_TASK_TYPES)),

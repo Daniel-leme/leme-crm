@@ -77,30 +77,28 @@ function LeadRow({ lead, onSelect, isOrphan, isLate, isToday, nextTask }) {
             {isToday  && !isLate          && <i className="ti ti-flag-2"         style={{ fontSize: 11, color: '#15803D', flexShrink: 0 }} />}
             <p style={{ margin: 0, fontWeight: 600, fontSize: 14, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.name || '(sem nome)'}</p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-            <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-hint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {lost
-                ? `Perdido em ${lead.lastActiveStatus || lead.status}${lead.lossReason ? ` · ${lead.lossReason}` : ''}`
-                : [lead.phone, lead.bank, lead.responsible].filter(Boolean).join(' · ') || '—'}
-            </p>
-            {!lost && (() => {
-              const taskColor = isLate ? '#C62828' : isOrphan ? '#B45309' : isToday ? '#15803D' : '#1565C0'
-              const taskBg    = isLate ? '#FEE2E2' : isOrphan ? '#FEF3C7' : isToday ? '#DCFCE7' : '#DBEAFE'
-              const taskIcon  = isLate ? 'ti-alarm' : isOrphan ? 'ti-alert-triangle' : isToday ? 'ti-flag-2' : 'ti-calendar'
-              const taskLabel = isOrphan
-                ? 'Sem tarefa'
-                : nextTask?.dueDate
-                  ? fmtDate(nextTask.dueDate) + (nextTask.dueTime ? ` ${nextTask.dueTime}` : '')
-                  : null
-              if (!taskLabel) return null
-              return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '1px 6px', borderRadius: 99, background: taskBg, flexShrink: 0 }}>
-                  <i className={`ti ${taskIcon}`} style={{ fontSize: 9, color: taskColor }} />
-                  <span style={{ fontSize: 10, fontWeight: 600, color: taskColor, whiteSpace: 'nowrap' }}>{taskLabel}</span>
-                </div>
-              )
-            })()}
-          </div>
+          <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--color-text-hint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {lost
+              ? `Perdido em ${lead.lastActiveStatus || lead.status}${lead.lossReason ? ` · ${lead.lossReason}` : ''}`
+              : [lead.phone, lead.bank, lead.responsible].filter(Boolean).join(' · ') || '—'}
+          </p>
+          {!lost && (() => {
+            const taskColor = isLate ? '#C62828' : isOrphan ? '#B45309' : isToday ? '#15803D' : '#1565C0'
+            const taskBg    = isLate ? '#FEE2E2' : isOrphan ? '#FEF3C7' : isToday ? '#DCFCE7' : '#DBEAFE'
+            const taskIcon  = isLate ? 'ti-alarm' : isOrphan ? 'ti-alert-triangle' : isToday ? 'ti-flag-2' : 'ti-calendar'
+            const taskLabel = isOrphan
+              ? 'Sem tarefa'
+              : nextTask?.dueDate
+                ? fmtDate(nextTask.dueDate) + (nextTask.dueTime ? ` ${nextTask.dueTime}` : '')
+                : null
+            if (!taskLabel) return null
+            return (
+              <div style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 7px', borderRadius: 99, background: taskBg }}>
+                <i className={`ti ${taskIcon}`} style={{ fontSize: 9, color: taskColor }} />
+                <span style={{ fontSize: 10, fontWeight: 600, color: taskColor, whiteSpace: 'nowrap' }}>{taskLabel}</span>
+              </div>
+            )
+          })()}
         </div>
       </div>
 
@@ -495,9 +493,6 @@ export default function LeadList({ leads, tasks, onSelect, onNew }) {
           })}
         </div>
 
-        <button onClick={onNew} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 'var(--radius-md)', background: 'var(--color-blue-mid)', color: '#fff', border: 'none', fontWeight: 500, fontSize: 14, whiteSpace: 'nowrap' }}>
-          <i className="ti ti-plus" style={{ fontSize: 17 }} aria-hidden="true" /> Novo Lead
-        </button>
       </div>
 
       {/* ── Lista principal ───────────────────────────────────────────────── */}

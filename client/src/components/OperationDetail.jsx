@@ -1,17 +1,6 @@
-import { useState, useEffect } from 'react'
-import { OPERATIONAL_STATUSES, OPERATIONAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS, fmtCurrency } from '../constants'
+import { useState } from 'react'
+import { OPERATIONAL_STATUSES, OPERATIONAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS } from '../constants'
 import StatusBadge from './StatusBadge'
-import { apiUpdateOperation } from '../utils/api'
-
-function Field({ label, hint, children }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-secondary)' }}>{label}</label>
-      {children}
-      {hint && <span style={{ fontSize: 11, color: 'var(--color-text-hint)' }}>{hint}</span>}
-    </div>
-  )
-}
 
 const CHEVRON_H   = 36
 const CHEVRON_P   = 12
@@ -166,53 +155,14 @@ function LossReasonModal({ lossReasons, onConfirm, onCancel }) {
   )
 }
 
-export default function OperationDetail({ operation, settings, onStatusChange, onOpenLead, onSaved }) {
+export default function OperationDetail({ operation, settings, onStatusChange, onOpenLead }) {
   const lossReasons = settings?.lossReasons
     ? JSON.parse(settings.lossReasons)
     : DEFAULT_LOSS_REASONS
 
-  const [form, setForm] = useState({
-    repaymentValue:    operation.repaymentValue    || '',
-    distributionNotes: operation.distributionNotes || '',
-    notes:             operation.notes             || '',
-    responsible:       operation.responsible       || '',
-  })
-  const [saving,        setSaving]        = useState(false)
   const [showLossModal, setShowLossModal] = useState(false)
 
-  useEffect(() => {
-    setForm({
-      repaymentValue:    operation.repaymentValue    || '',
-      distributionNotes: operation.distributionNotes || '',
-      notes:             operation.notes             || '',
-      responsible:       operation.responsible       || '',
-    })
-  }, [operation.id, operation.repaymentValue, operation.distributionNotes, operation.notes, operation.responsible])
-
-  const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }))
-
   const isLost = !!operation.isLost
-
-  const emb  = parseFloat(operation.lead_embeddedValue ?? operation.embeddedValue) || 0
-  const fee  = operation.lead_feePercent ?? operation.feePercent ?? 50
-  const leme = emb * (fee / 100)
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      const updated = await apiUpdateOperation(operation.id, {
-        repaymentValue:    parseFloat(form.repaymentValue) || 0,
-        distributionNotes: form.distributionNotes,
-        notes:             form.notes,
-        responsible:       form.responsible,
-      })
-      if (onSaved) onSaved(updated)
-    } catch (e) {
-      alert(`Erro ao salvar: ${e.message}`)
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const handleStepClick = (step, isLostStep) => {
     if (isLostStep) {
@@ -321,73 +271,6 @@ export default function OperationDetail({ operation, settings, onStatusChange, o
         />
       </div>
 
-      {/* ── Painel de valores ─────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-        {[
-          { label: 'Valor embutido',       value: fmtCurrency(emb),  icon: 'ti-coin',         bg: '#FFF3CD', color: '#7A4F00' },
-          { label: `Honorários (${fee}%)`, value: fmtCurrency(leme), icon: 'ti-cash',         bg: '#E8F5E9', color: '#2E7D32' },
-          { label: 'Repasse (cliente)',     value: fmtCurrency(parseFloat(form.repaymentValue) || 0), icon: 'ti-transfer', bg: '#E3F2FD', color: '#1565C0' },
-        ].map(m => (
-          <div key={m.label} style={{ background: m.bg, borderRadius: 'var(--radius-lg)', padding: '14px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <i className={`ti ${m.icon}`} style={{ fontSize: 14, color: m.color }} aria-hidden="true" />
-              <span style={{ fontSize: 11, color: m.color, opacity: 0.8 }}>{m.label}</span>
-            </div>
-            <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: m.color }}>{m.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Campos editáveis ──────────────────────────────────────────────── */}
-      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)', padding: '18px 20px' }}>
-        <p style={{ margin: '0 0 16px', fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Dados da operação</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-          <Field label="Valor do Repasse (R$)" hint="Valor que o cliente vai repassar">
-            <input
-              type="number" min="0" step="0.01"
-              value={form.repaymentValue}
-              onChange={e => set('repaymentValue', e.target.value)}
-              placeholder="0.00"
-            />
-          </Field>
-
-          <Field label="Responsável">
-            <input
-              value={form.responsible}
-              onChange={e => set('responsible', e.target.value)}
-              placeholder="Nome do responsável"
-            />
-          </Field>
-
-          <Field label="Observações de Distribuição" hint="Obs sobre repasse/distribuição entre os sócios">
-            <textarea
-              value={form.distributionNotes}
-              onChange={e => set('distributionNotes', e.target.value)}
-              placeholder="Ex: 50% Daniel, 50% Riquelme…"
-              rows={3}
-            />
-          </Field>
-
-          <Field label="Observações gerais">
-            <textarea
-              value={form.notes}
-              onChange={e => set('notes', e.target.value)}
-              placeholder="Anotações sobre a operação…"
-              rows={3}
-            />
-          </Field>
-
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 20px', borderRadius: 'var(--radius-md)', border: 'none', background: '#1565C0', color: '#fff', fontSize: 14, fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}
-          >
-            <i className="ti ti-device-floppy" style={{ fontSize: 16 }} aria-hidden="true" />
-            {saving ? 'Salvando…' : 'Salvar alterações'}
-          </button>
-        </div>
-      </div>
     </div>
   )
 }

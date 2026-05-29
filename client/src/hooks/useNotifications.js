@@ -168,6 +168,11 @@ export function useNotifications(tasks) {
     setNotifications([])
   }, [])
 
+  const removeNotificationsForTask = useCallback((taskId) => {
+    setNotifications(prev => prev.filter(n => !n.id.includes(`|${taskId}|`)))
+    setToasts(prev => prev.filter(t => !t.id.includes(`|${taskId}|`)))
+  }, [])
+
   const check = useCallback(() => {
     const alerts = buildAlerts(tasksRef.current)
     const fired  = firedRef.current
@@ -249,5 +254,5 @@ export function useNotifications(tasks) {
     skipUntil.current = Date.now() + 10_000  // ignora o check disparado pelo re-render de tasks
   }, [])
 
-  return { notifications, unreadCount, toasts, dismissToast, clearNotifications, check, triggerTest, resetFired, clearFiredForTask }
+  return { notifications, unreadCount, toasts, dismissToast, clearNotifications, removeNotificationsForTask, check, triggerTest, resetFired, clearFiredForTask }
 }
