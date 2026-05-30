@@ -1,9 +1,8 @@
 import { useState } from 'react'
-import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, OPERATIONAL_STATUSES, fmtCurrency, fmtDate } from '../constants'
+import { COMMERCIAL_STATUSES, COMMERCIAL_STATUS_META, OPERATIONAL_STATUSES, OPERATIONAL_STATUS_META, fmtCurrency, fmtDate } from '../constants'
 
-const STATUS_DEPTH = Object.fromEntries(COMMERCIAL_STATUSES.map((s, i) => [s, i]))
-import StatusBadge from './StatusBadge'
-
+const STATUS_DEPTH    = Object.fromEntries(COMMERCIAL_STATUSES.map((s, i) => [s, i]))
+const OP_STATUS_DEPTH = Object.fromEntries(OPERATIONAL_STATUSES.map((s, i) => [s, i]))
 
 const STATUS_SIDE_BG = {
   'Novo Lead':         '#F1EFE8',
@@ -15,14 +14,31 @@ const STATUS_SIDE_BG = {
   'Perdido':           '#FEE2E2',
 }
 
-function LeadRow({ lead, onSelect, isOrphan, isLate, isToday, nextTask }) {
+function LeadRow({ lead, onSelect, isOrphan, isLate, isToday, nextTask, opStatus }) {
   const emb       = parseFloat(lead.embeddedValue) || 0
   const leme      = emb * ((lead.feePercent ?? 50) / 100)
   const lost      = !!lead.isLost
-  const statusKey = lost ? 'Perdido' : lead.status
-  const meta      = COMMERCIAL_STATUS_META[statusKey] || COMMERCIAL_STATUS_META['Novo Lead']
-  const sideBg    = STATUS_SIDE_BG[statusKey] || '#F1EFE8'
   const hasValues = emb > 0
+
+  // Se o lead está em "Contrato Assinado" e tem status operacional, usa o meta operacional
+  const isContrato  = !lost && lead.status === 'Contrato Assinado' && !!opStatus
+  const statusKey   = lost ? 'Perdido' : isContrato ? opStatus : lead.status
+  const meta        = isContrato
+    ? (OPERATIONAL_STATUS_META[opStatus] || OPERATIONAL_STATUS_META['Documentação'])
+    : (COMMERCIAL_STATUS_META[statusKey] || COMMERCIAL_STATUS_META['Novo Lead'])
+  // Para operacionais, usa bg mais claro que o meta.bg (que é saturado demais para fundo de coluna)
+  const OP_SIDE_BG = {
+    'Documentação':              '#EEF6FD',
+    'Solicitação de Estorno':    '#FFFDF0',
+    'Aguardando Estorno':        '#FFF8F0',
+    'Cobrança':                  '#FAF0FF',
+    'Transferência de Repasses': '#EEF8EE',
+    'Concluído':                 '#EEF8EE',
+    'Perdido':                   '#FEF2F2',
+  }
+  const sideBg = isContrato
+    ? (OP_SIDE_BG[opStatus] || '#EEF8EE')
+    : (STATUS_SIDE_BG[statusKey] || '#F1EFE8')
 
   // tarja: atrasada=vermelho grosso, órfã=âmbar grosso, hoje=verde grosso, futura=azul fino, padrão=cinza fino
   const tarjaColor = isLate ? '#EF4444' : isOrphan ? '#F59E0B' : isToday ? '#22C55E' : '#3B82F6'
@@ -324,13 +340,16 @@ function leadNextTask(leadId, tasks) {
     })[0] || null
 }
 
-// 0=atrasada, 1=sem tarefa, 2=hoje, 3=futura, 4=contrato assinado
-function taskPriority(lead, nextTask, orphanIds, today, nowTime) {
-  if (lead.status === 'Contrato Assinado') return 4
+// 0=atrasada, 1=sem tarefa, 2=hoje, 3=futura, 4=contrato assinado (não-concluído), 5=concluído operacional
+function taskPriority(lead, nextTask, orphanIds, today, nowTime, opStatusByLead) {
+  if (lead.status === 'Contrato Assinado') {
+    const opS = opStatusByLead?.[lead.id]
+    return opS === 'Concluído' ? 5 : 4
+  }
   if (!nextTask) return 1
   if (!nextTask.dueDate || nextTask.dueDate < today) return 0
   if (nextTask.dueDate === today) {
-    if (nextTask.dueTime && nextTask.dueTime <= nowTime) return 0 // hora já passou → atrasada
+    if (nextTask.dueTime && nextTask.dueTime <= nowTime) return 0
     return 2
   }
   return 3
@@ -342,10 +361,16 @@ function taskSortKey(nextTask) {
   return nextTask.dueDate + (nextTask.dueTime ? 'T' + nextTask.dueTime : 'T99:99')
 }
 
-export default function LeadList({ leads, tasks, onSelect, onNew }) {
-  const [search, setSearch]         = useState('')
-  const [filterStatus, setFilter]   = useState('Todos')
-  const [filterResp, setFilterResp] = useState('Todos')
+export default function LeadList({ leads, tasks, operations, onSelect, onNew }) {
+  const [search, setSearch]           = useState('')
+  const [filterStatus, setFilter]     = useState('Todos')
+  const [filterResp, setFilterResp]   = useState('Todos')
+  const [concludedOpen, setConcluded] = useState(false)
+
+  // Mapa leadId → status operacional (para leads em "Contrato Assinado")
+  const opStatusByLead = Object.fromEntries(
+    (operations || []).map(o => [o.lead_id, o.isLost ? 'Perdido' : o.status])
+  )
 
   const activeLeads = leads.filter(l => !l.isLost)
   const lostLeads   = leads.filter(l => !!l.isLost)
@@ -409,9 +434,15 @@ export default function LeadList({ leads, tasks, onSelect, onNew }) {
       filtered.sort((a, b) => {
         const ntA = leadNextTask(a.id, pendingTasks)
         const ntB = leadNextTask(b.id, pendingTasks)
-        const pA  = taskPriority(a, ntA, orphanIds, today, nowTime)
-        const pB  = taskPriority(b, ntB, orphanIds, today, nowTime)
+        const pA  = taskPriority(a, ntA, orphanIds, today, nowTime, opStatusByLead)
+        const pB  = taskPriority(b, ntB, orphanIds, today, nowTime, opStatusByLead)
         if (pA !== pB) return pA - pB
+        // Dentro do bloco "Contrato Assinado" (p=4): ordena pela progressão operacional
+        if (pA === 4 || pA === 5) {
+          const opA = OP_STATUS_DEPTH[opStatusByLead?.[a.id]] ?? 99
+          const opB = OP_STATUS_DEPTH[opStatusByLead?.[b.id]] ?? 99
+          return opA - opB
+        }
         const skA = taskSortKey(ntA)
         const skB = taskSortKey(ntB)
         if (skA !== skB) return skA.localeCompare(skB)
@@ -424,8 +455,20 @@ export default function LeadList({ leads, tasks, onSelect, onNew }) {
     return filtered
   }
 
-  const filteredActive = isLostMode ? [] : applyFilters(activeLeads)
-  const filteredLost   = isLostMode ? applyFilters(lostLeads) : []
+  // Leads operacionalmente concluídos — saem da lista principal, vão pro acordeão
+  const concludedLeads = activeLeads.filter(l =>
+    l.status === 'Contrato Assinado' && opStatusByLead[l.id] === 'Concluído'
+  )
+  const concludedIds = new Set(concludedLeads.map(l => l.id))
+
+  const filteredActive    = isLostMode ? [] : applyFilters(activeLeads.filter(l => !concludedIds.has(l.id)))
+  const filteredConcluded = concludedLeads.filter(l => {
+    const q = search.toLowerCase()
+    const matchSearch = (l.name||'').toLowerCase().includes(q) || (l.phone||'').includes(q) || (l.cpf||'').includes(q)
+    const matchResp   = filterResp === 'Todos' || l.responsible === filterResp
+    return matchSearch && matchResp
+  })
+  const filteredLost = isLostMode ? applyFilters(lostLeads) : []
 
   // Métricas — baseadas em leads ativos (não perdidos)
   const funnelLeads   = activeLeads.filter(l => l.status !== 'Contrato Assinado')
@@ -497,16 +540,74 @@ export default function LeadList({ leads, tasks, onSelect, onNew }) {
 
       {/* ── Lista principal ───────────────────────────────────────────────── */}
       {!isLostMode && (
-        filteredActive.length === 0 ? (
+        filteredActive.length === 0 && concludedLeads.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '4rem 0', color: 'var(--color-text-hint)', fontSize: 14 }}>
             <i className="ti ti-users-group" style={{ fontSize: 40, display: 'block', marginBottom: 12 }} aria-hidden="true" />
             {activeLeads.length === 0 ? 'Nenhum lead cadastrado ainda.' : 'Nenhum lead encontrado para esse filtro.'}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {filteredActive.map(lead => <LeadRow key={lead.id} lead={lead} onSelect={onSelect} isOrphan={orphanIds.has(lead.id)} isLate={lateIds.has(lead.id)} isToday={!lateIds.has(lead.id) && todayIds.has(lead.id)} nextTask={leadNextTask(lead.id, pendingTasks)} />)}
+            {filteredActive.map(lead => (
+              <LeadRow key={lead.id} lead={lead} onSelect={onSelect}
+                isOrphan={orphanIds.has(lead.id)} isLate={lateIds.has(lead.id)}
+                isToday={!lateIds.has(lead.id) && todayIds.has(lead.id)}
+                nextTask={leadNextTask(lead.id, pendingTasks)}
+                opStatus={opStatusByLead[lead.id]}
+              />
+            ))}
           </div>
         )
+      )}
+
+      {/* ── Acordeão de concluídos ───────────────────────────────────────── */}
+      {!isLostMode && concludedLeads.length > 0 && filterStatus === 'Contrato Assinado' && (
+        <div style={{ borderRadius: 'var(--radius-lg)', border: '1px solid #A5D6A7', overflow: 'hidden' }}>
+
+          {/* Cabeçalho clicável */}
+          <button
+            onClick={() => setConcluded(o => !o)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+              padding: '13px 16px', border: 'none', cursor: 'pointer',
+              background: concludedOpen ? '#E8F5E9' : '#F1FAF2',
+              transition: 'background 0.15s',
+            }}
+          >
+            <div style={{
+              width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+              background: '#A5D6A7', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <i className="ti ti-trophy" style={{ fontSize: 14, color: '#1B5E20' }} />
+            </div>
+            <div style={{ flex: 1, textAlign: 'left' }}>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#1B5E20' }}>
+                Concluídos
+              </p>
+              <p style={{ margin: '1px 0 0', fontSize: 11, color: '#4CAF50' }}>
+                {filteredConcluded.length} lead{filteredConcluded.length !== 1 ? 's' : ''} com operação finalizada
+              </p>
+            </div>
+            <i
+              className={`ti ${concludedOpen ? 'ti-chevron-up' : 'ti-chevron-down'}`}
+              style={{ fontSize: 15, color: '#4CAF50', flexShrink: 0 }}
+            />
+          </button>
+
+          {/* Lista expandida */}
+          {concludedOpen && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 10px 10px' }}>
+              {filteredConcluded.length === 0 ? (
+                <p style={{ textAlign: 'center', fontSize: 13, color: 'var(--color-text-hint)', padding: '12px 0' }}>
+                  Nenhum resultado para esse filtro.
+                </p>
+              ) : filteredConcluded.map(lead => (
+                <LeadRow key={lead.id} lead={lead} onSelect={onSelect}
+                  opStatus={opStatusByLead[lead.id]}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* ── Seção de perdas ───────────────────────────────────────────────── */}

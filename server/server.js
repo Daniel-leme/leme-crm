@@ -1,212 +1,112 @@
+require('dotenv').config()
 const express = require('express')
-const cors = require('cors')
-const path = require('path')
-const fs = require('fs')
-const sqlite3 = require('sqlite3').verbose()
+const cors    = require('cors')
+const path    = require('path')
+const { Pool } = require('pg')
 
 const PORT = process.env.PORT || 4000
-const DB_PATH = path.join(__dirname, 'leme-crm.db')
 
-function run(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err); else resolve(this)
-    })
-  })
-}
-function all(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err); else resolve(rows)
-    })
-  })
-}
-function get(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err); else resolve(row)
-    })
-  })
-}
+const pool = new Pool({ connectionString: process.env.DATABASE_URL })
 
-const db = new sqlite3.Database(DB_PATH)
+const query = (sql, params = []) => pool.query(sql, params)
+const all   = async (sql, params = []) => (await pool.query(sql, params)).rows
+const get   = async (sql, params = []) => (await pool.query(sql, params)).rows[0] || null
+const run   = (sql, params = []) => pool.query(sql, params)
 
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 
-// Mapeamento de status antigos para novos (funil comercial)
-const STATUS_MIGRATION_MAP = {
-  '0. Qualificação':         'Qualificação',
-  '1. Qualificado':          'Qualificado',
-  '0. Novo Lead':            'Novo Lead',
-  '1. Qualificação':         'Qualificação',
-  '2. Qualificado':          'Qualificado',
-  '3. Revisão':              'Revisão',
-  '4. Negociação':           'Negociação',
-  '5. Contrato Assinado':    'Contrato Assinado',
-  '2.0. Envio do contrato':  'Revisão',
-  '2.1. Assistência 2ª via': 'Revisão',
-  '3.0. Negociação/contrato':'Negociação',
-  '5. Solicitar estorno':    'Contrato Assinado',
-  '6. Aguardando estorno':   'Contrato Assinado',
-  '7. Concluído':            'Contrato Assinado',
-  'Cancelado':               'Perdido',
-}
-
-// Status antigo → status da operação correspondente
-const OPERATION_STATUS_MAP = {
-  '5. Solicitar estorno':          'Solicitação de Estorno',
-  '6. Aguardando estorno':         'Aguardando Estorno',
-  '7. Concluído':                  'Concluído',
-  '6. Documentação':               'Documentação',
-  '7. Solicitação de Estorno':     'Solicitação de Estorno',
-  '8. Aguardando Estorno':         'Aguardando Estorno',
-  '9. Cobrança':                   'Cobrança',
-  '10. Transferência de Repasses': 'Transferência de Repasses',
-  '11. Concluído':                 'Concluído',
-}
-
 async function initDb() {
-  await run(db, `
+  await run(`
     CREATE TABLE IF NOT EXISTS leads (
-      id              TEXT PRIMARY KEY,
-      name            TEXT NOT NULL,
-      cpf             TEXT,
-      rg              TEXT,
-      birthDate       TEXT,
-      email           TEXT,
-      phone           TEXT,
-      address         TEXT,
-      responsible     TEXT,
-      bank            TEXT,
-      contractType    TEXT,
-      contractNumber  TEXT,
-      source          TEXT,
-      status          TEXT DEFAULT 'Novo Lead',
-      feePercent      INTEGER DEFAULT 50,
-      embeddedValue   REAL DEFAULT 0,
-      productsCount   INTEGER DEFAULT 0,
-      notes           TEXT,
-      contractFile    TEXT,
-      contractName    TEXT,
-      nextContact     TEXT,
-      createdAt       TEXT NOT NULL,
-      updatedAt       TEXT NOT NULL
+      id               TEXT PRIMARY KEY,
+      name             TEXT NOT NULL DEFAULT '',
+      cpf              TEXT DEFAULT '',
+      rg               TEXT DEFAULT '',
+      "birthDate"      TEXT DEFAULT '',
+      email            TEXT DEFAULT '',
+      phone            TEXT DEFAULT '',
+      address          TEXT DEFAULT '',
+      responsible      TEXT DEFAULT '',
+      bank             TEXT DEFAULT '',
+      "contractType"   TEXT DEFAULT '',
+      "contractNumber" TEXT DEFAULT '',
+      source           TEXT DEFAULT '',
+      status           TEXT DEFAULT 'Novo Lead',
+      "feePercent"     INTEGER DEFAULT 50,
+      "embeddedValue"  REAL DEFAULT 0,
+      "productsCount"  INTEGER DEFAULT 0,
+      notes            TEXT DEFAULT '',
+      "contractFile"   TEXT DEFAULT '',
+      "contractName"   TEXT DEFAULT '',
+      "nextContact"    TEXT DEFAULT '',
+      "lossReason"     TEXT DEFAULT '',
+      "lastActiveStatus" TEXT DEFAULT '',
+      "adCampaign"     TEXT DEFAULT '',
+      "adSet"          TEXT DEFAULT '',
+      "adName"         TEXT DEFAULT '',
+      "isLost"         INTEGER DEFAULT 0,
+      "createdAt"      TEXT NOT NULL DEFAULT '',
+      "updatedAt"      TEXT NOT NULL DEFAULT ''
     )
   `)
 
-  // Migração: adicionar colunas novas se o banco já existia
-  const cols = await all(db, `PRAGMA table_info(leads)`)
-  const colNames = cols.map(c => c.name)
-  if (!colNames.includes('responsible'))   await run(db, `ALTER TABLE leads ADD COLUMN responsible TEXT DEFAULT ''`)
-  if (!colNames.includes('embeddedValue')) await run(db, `ALTER TABLE leads ADD COLUMN embeddedValue REAL DEFAULT 0`)
-  if (!colNames.includes('nextContact'))   await run(db, `ALTER TABLE leads ADD COLUMN nextContact TEXT DEFAULT ''`)
-  if (!colNames.includes('productsCount')) await run(db, `ALTER TABLE leads ADD COLUMN productsCount INTEGER DEFAULT 0`)
-  if (!colNames.includes('lossReason'))    await run(db, `ALTER TABLE leads ADD COLUMN lossReason TEXT DEFAULT ''`)
-  if (!colNames.includes('lastActiveStatus')) await run(db, `ALTER TABLE leads ADD COLUMN lastActiveStatus TEXT DEFAULT ''`)
-  if (!colNames.includes('adCampaign'))    await run(db, `ALTER TABLE leads ADD COLUMN adCampaign TEXT DEFAULT ''`)
-  if (!colNames.includes('adSet'))         await run(db, `ALTER TABLE leads ADD COLUMN adSet TEXT DEFAULT ''`)
-  if (!colNames.includes('adName'))        await run(db, `ALTER TABLE leads ADD COLUMN adName TEXT DEFAULT ''`)
-  if (!colNames.includes('isLost'))        await run(db, `ALTER TABLE leads ADD COLUMN isLost INTEGER DEFAULT 0`)
-
-  // Migrar leads com status='Perdido' (modelo antigo) para isLost=1 + restaurar lastActiveStatus como status
-  const oldLostLeads = await all(db, `SELECT * FROM leads WHERE status = 'Perdido'`)
-  for (const lead of oldLostLeads) {
-    const restoreStatus = lead.lastActiveStatus || 'Qualificação'
-    await run(db, `UPDATE leads SET status=?, isLost=1 WHERE id=?`, [restoreStatus, lead.id])
-  }
-
-  // Tabela de operações
-  await run(db, `
+  await run(`
     CREATE TABLE IF NOT EXISTS operations (
-      id                TEXT PRIMARY KEY,
-      lead_id           TEXT NOT NULL UNIQUE,
-      status            TEXT DEFAULT 'Documentação',
-      isLost            INTEGER DEFAULT 0,
-      lossReason        TEXT DEFAULT '',
-      lastActiveStatus  TEXT DEFAULT '',
-      responsible       TEXT,
-      notes             TEXT,
-      distributionNotes TEXT,
-      embeddedValue     REAL DEFAULT 0,
-      feePercent        INTEGER DEFAULT 50,
-      repaymentValue    REAL DEFAULT 0,
-      createdAt         TEXT NOT NULL,
-      updatedAt         TEXT NOT NULL,
+      id                 TEXT PRIMARY KEY,
+      lead_id            TEXT NOT NULL UNIQUE,
+      status             TEXT DEFAULT 'Documentação',
+      "isLost"           INTEGER DEFAULT 0,
+      "lossReason"       TEXT DEFAULT '',
+      "lastActiveStatus" TEXT DEFAULT '',
+      responsible        TEXT DEFAULT '',
+      notes              TEXT DEFAULT '',
+      "distributionNotes" TEXT DEFAULT '',
+      "embeddedValue"    REAL DEFAULT 0,
+      "feePercent"       INTEGER DEFAULT 50,
+      "repaymentValue"   REAL DEFAULT 0,
+      "createdAt"        TEXT NOT NULL DEFAULT '',
+      "updatedAt"        TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (lead_id) REFERENCES leads(id)
     )
   `)
-  // Migração: adicionar colunas novas em operations se já existia
-  const opCols = await all(db, `PRAGMA table_info(operations)`)
-  const opColNames = opCols.map(c => c.name)
-  if (!opColNames.includes('isLost'))           await run(db, `ALTER TABLE operations ADD COLUMN isLost INTEGER DEFAULT 0`)
-  if (!opColNames.includes('lossReason'))       await run(db, `ALTER TABLE operations ADD COLUMN lossReason TEXT DEFAULT ''`)
-  if (!opColNames.includes('lastActiveStatus')) await run(db, `ALTER TABLE operations ADD COLUMN lastActiveStatus TEXT DEFAULT ''`)
 
-  // Migração de status antigos para novos no funil comercial
-  for (const [oldStatus, newStatus] of Object.entries(STATUS_MIGRATION_MAP)) {
-    await run(db, `UPDATE leads SET status = ? WHERE status = ?`, [newStatus, oldStatus])
-  }
-
-  // Migração de status antigos para novos no funil operacional
-  for (const [oldStatus, newStatus] of Object.entries(OPERATION_STATUS_MAP)) {
-    await run(db, `UPDATE operations SET status = ? WHERE status = ?`, [newStatus, oldStatus])
-  }
-
-  // Migrar 'Cancelado' → 'Perdido' (caso tenha restado algum)
-  await run(db, `UPDATE leads SET status = 'Perdido' WHERE status = 'Cancelado'`)
-
-  // Criar operações retroativas para leads em 'Contrato Assinado' que não têm operação
-  const leadsWithContract = await all(db, `SELECT * FROM leads WHERE status = 'Contrato Assinado'`)
-  const now = new Date().toISOString()
-  for (const lead of leadsWithContract) {
-    const existing = await get(db, `SELECT id FROM operations WHERE lead_id = ?`, [lead.id])
-    if (!existing) {
-      await run(db, `
-        INSERT INTO operations (id, lead_id, status, responsible, embeddedValue, feePercent, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `, [genId(), lead.id, 'Documentação', lead.responsible || '', parseFloat(lead.embeddedValue) || 0, lead.feePercent || 50, now, now])
-    }
-  }
-
-  // Tabela de contratos bancários do cliente
-  await run(db, `
+  await run(`
     CREATE TABLE IF NOT EXISTS contracts (
       id             TEXT PRIMARY KEY,
       lead_id        TEXT NOT NULL,
       bank           TEXT DEFAULT '',
       type           TEXT DEFAULT '',
       status         TEXT DEFAULT 'Aguardando envio',
-      embeddedValue  REAL DEFAULT 0,
-      productsCount  INTEGER DEFAULT 0,
+      "embeddedValue" REAL DEFAULT 0,
+      "productsCount" INTEGER DEFAULT 0,
       notes          TEXT DEFAULT '',
-      pdfFile        TEXT,
-      pdfName        TEXT DEFAULT '',
-      createdAt      TEXT NOT NULL,
-      updatedAt      TEXT NOT NULL,
+      "pdfFile"      TEXT DEFAULT '',
+      "pdfName"      TEXT DEFAULT '',
+      "createdAt"    TEXT NOT NULL DEFAULT '',
+      "updatedAt"    TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (lead_id) REFERENCES leads(id)
     )
   `)
 
-  // Tabela de tarefas
-  await run(db, `
+  await run(`
     CREATE TABLE IF NOT EXISTS tasks (
-      id          TEXT PRIMARY KEY,
-      lead_id     TEXT NOT NULL,
-      contract_id TEXT DEFAULT '',
-      type        TEXT DEFAULT 'Ligação',
-      description TEXT DEFAULT '',
-      assignedTo  TEXT DEFAULT '',
-      dueDate     TEXT DEFAULT '',
-      dueTime     TEXT DEFAULT '',
-      status      TEXT DEFAULT 'pending',
-      isAuto      INTEGER DEFAULT 0,
-      createdAt   TEXT NOT NULL,
-      updatedAt   TEXT NOT NULL,
+      id           TEXT PRIMARY KEY,
+      lead_id      TEXT NOT NULL,
+      contract_id  TEXT DEFAULT '',
+      type         TEXT DEFAULT 'Ligação',
+      description  TEXT DEFAULT '',
+      "assignedTo" TEXT DEFAULT '',
+      "dueDate"    TEXT DEFAULT '',
+      "dueTime"    TEXT DEFAULT '',
+      status       TEXT DEFAULT 'pending',
+      "isAuto"     INTEGER DEFAULT 0,
+      "createdAt"  TEXT NOT NULL DEFAULT '',
+      "updatedAt"  TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (lead_id) REFERENCES leads(id)
     )
   `)
 
-  await run(db, `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`)
+  await run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`)
 
   const defaultSettings = {
     companyName:      'Leme Financeira',
@@ -220,12 +120,13 @@ async function initDb() {
       'Nubank','Sicredi','Sicoob','BMG','BV','Pan Americano','Safra',
       'Inter','C6 Bank','C6 Consignado','Daycoval','Facta','Agibank','Mercantil','Outro'
     ]),
-    responsibles:  JSON.stringify(['Daniel', 'Riquelme']),
-    lossReasons:   JSON.stringify(['Desqualificado', 'Sem Valores', 'Sem Contato', 'Desistiu']),
-    taskTypes:     JSON.stringify(['Ligação', 'WhatsApp / Follow-up', 'Reunião', 'Envio de documento', 'Outro']),
+    responsibles: JSON.stringify(['Riquelme', 'Daniel']),
+    lossReasons:  JSON.stringify(['Desqualificado', 'Sem Valores', 'Sem Contato', 'Desistiu']),
+    taskTypes:    JSON.stringify(['Ligação', 'WhatsApp / Follow-up', 'Reunião', 'Envio de documento', 'Outro']),
+    leadSources:  JSON.stringify(['Instagram', 'Facebook', 'Indicação', 'Google', 'WhatsApp', 'Outro']),
   }
   for (const [k, v] of Object.entries(defaultSettings)) {
-    await run(db, 'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', [k, v])
+    await run(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`, [k, v])
   }
 }
 
@@ -236,14 +137,15 @@ app.use(express.json({ limit: '50mb' }))
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }))
 
 // ─── Leads ────────────────────────────────────────────────────────────────────
+
 app.get('/api/leads', async (req, res) => {
-  try { res.json(await all(db, 'SELECT * FROM leads ORDER BY createdAt DESC')) }
+  try { res.json(await all(`SELECT * FROM leads ORDER BY "createdAt" DESC`)) }
   catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 app.get('/api/leads/:id', async (req, res) => {
   try {
-    const row = await get(db, 'SELECT * FROM leads WHERE id = ?', [req.params.id])
+    const row = await get(`SELECT * FROM leads WHERE id = $1`, [req.params.id])
     if (!row) return res.status(404).json({ error: 'Lead não encontrado' })
     res.json(row)
   } catch (e) { res.status(500).json({ error: e.message }) }
@@ -254,25 +156,23 @@ app.post('/api/leads', async (req, res) => {
     const l = req.body
     const now = new Date().toISOString()
     const id = l.id || genId()
-    await run(db, `
+    await run(`
       INSERT INTO leads (
-        id, name, cpf, rg, birthDate, email, phone, address, responsible,
-        source, adCampaign, adSet, adName, status,
-        feePercent, embeddedValue, productsCount, notes,
-        lossReason, lastActiveStatus,
-        createdAt, updatedAt
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        id, name, cpf, rg, "birthDate", email, phone, address, responsible,
+        source, "adCampaign", "adSet", "adName", status,
+        "feePercent", "embeddedValue", "productsCount", notes,
+        "lossReason", "lastActiveStatus", "createdAt", "updatedAt"
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
     `, [
       id, l.name||'', l.cpf||'', l.rg||'', l.birthDate||'', l.email||'',
       l.phone||'', l.address||'', l.responsible||'',
       l.source||'', l.adCampaign||'', l.adSet||'', l.adName||'',
       l.status||'Novo Lead', l.feePercent??50,
       parseFloat(l.embeddedValue)||0, parseInt(l.productsCount)||0,
-      l.notes||'',
-      l.lossReason||'', l.lastActiveStatus||'',
+      l.notes||'', l.lossReason||'', l.lastActiveStatus||'',
       l.createdAt||now, now,
     ])
-    res.status(201).json(await get(db, 'SELECT * FROM leads WHERE id = ?', [id]))
+    res.status(201).json(await get(`SELECT * FROM leads WHERE id = $1`, [id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
@@ -280,136 +180,100 @@ app.put('/api/leads/:id', async (req, res) => {
   try {
     const l = req.body
     const now = new Date().toISOString()
-    const ex = await get(db, 'SELECT * FROM leads WHERE id = ?', [req.params.id])
+    const ex = await get(`SELECT * FROM leads WHERE id = $1`, [req.params.id])
     if (!ex) return res.status(404).json({ error: 'Lead não encontrado' })
 
-    // Lógica de perda VERTICAL: o lead permanece no status atual, isLost=1 o inativa nele
-    // isLost pode vir no body como true/false/1/0, ou permanecer como está
     const requestingLoss   = l.isLost === true  || l.isLost === 1
-    const requestingRevive = l.isLost === false || l.isLost === 0
+    const requestingRevive = l.isLost === false  || l.isLost === 0
     let newIsLost = ex.isLost
     let lossReason = l.lossReason ?? ex.lossReason
     let lastActiveStatus = ex.lastActiveStatus
 
     if (requestingLoss && !ex.isLost) {
       newIsLost = 1
-      lastActiveStatus = ex.status  // memoriza em qual status perdeu
+      lastActiveStatus = ex.status
     } else if (requestingRevive && ex.isLost) {
       newIsLost = 0
       lossReason = ''
     }
 
-    // status só muda se não estiver sendo marcado como perdido
-    // e não pode marcar perda no status 'Contrato Assinado' pelo funil comercial
-    const newStatus = l.status ?? ex.status
+    const newStatus     = l.status      ?? ex.status
     const newEmbedded   = parseFloat(l.embeddedValue ?? ex.embeddedValue) || 0
-    const newFeePercent = l.feePercent ?? ex.feePercent
+    const newFeePercent = l.feePercent  ?? ex.feePercent
 
-    await run(db, `
+    await run(`
       UPDATE leads SET
-        name=?,cpf=?,rg=?,birthDate=?,email=?,phone=?,address=?,responsible=?,
-        source=?,adCampaign=?,adSet=?,adName=?,
-        status=?,isLost=?,feePercent=?,embeddedValue=?,productsCount=?,notes=?,
-        lossReason=?,lastActiveStatus=?,
-        updatedAt=?
-      WHERE id=?
+        name=$1, cpf=$2, rg=$3, "birthDate"=$4, email=$5, phone=$6, address=$7, responsible=$8,
+        source=$9, "adCampaign"=$10, "adSet"=$11, "adName"=$12,
+        status=$13, "isLost"=$14, "feePercent"=$15, "embeddedValue"=$16, "productsCount"=$17, notes=$18,
+        "lossReason"=$19, "lastActiveStatus"=$20, "updatedAt"=$21
+      WHERE id=$22
     `, [
       l.name??ex.name, l.cpf??ex.cpf, l.rg??ex.rg, l.birthDate??ex.birthDate,
       l.email??ex.email, l.phone??ex.phone, l.address??ex.address, l.responsible??ex.responsible,
-      l.source??ex.source,
-      l.adCampaign??ex.adCampaign, l.adSet??ex.adSet, l.adName??ex.adName,
-      newStatus, newIsLost, newFeePercent,
-      newEmbedded,
+      l.source??ex.source, l.adCampaign??ex.adCampaign, l.adSet??ex.adSet, l.adName??ex.adName,
+      newStatus, newIsLost, newFeePercent, newEmbedded,
       parseInt(l.productsCount??ex.productsCount)||0,
-      l.notes??ex.notes,
-      lossReason, lastActiveStatus,
+      l.notes??ex.notes, lossReason, lastActiveStatus,
       now, req.params.id,
     ])
 
-    // Sincronizar embeddedValue e feePercent na operação vinculada (dados financeiros são do lead)
-    await run(db, `
-      UPDATE operations SET embeddedValue=?, feePercent=?, updatedAt=? WHERE lead_id=?
-    `, [newEmbedded, newFeePercent, now, req.params.id])
+    await run(`UPDATE operations SET "embeddedValue"=$1, "feePercent"=$2, "updatedAt"=$3 WHERE lead_id=$4`,
+      [newEmbedded, newFeePercent, now, req.params.id])
 
-    // Trigger: se chegou em 'Contrato Assinado', criar operação se não existir
     if (newStatus === 'Contrato Assinado') {
-      const existingOp = await get(db, `SELECT id FROM operations WHERE lead_id = ?`, [req.params.id])
+      const existingOp = await get(`SELECT id FROM operations WHERE lead_id = $1`, [req.params.id])
       if (!existingOp) {
-        const updatedLead = await get(db, 'SELECT * FROM leads WHERE id = ?', [req.params.id])
-        await run(db, `
-          INSERT INTO operations (id, lead_id, status, responsible, embeddedValue, feePercent, createdAt, updatedAt)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          genId(), req.params.id, 'Documentação',
-          updatedLead.responsible || '', parseFloat(updatedLead.embeddedValue) || 0,
-          updatedLead.feePercent || 50, now, now,
-        ])
+        const updatedLead = await get(`SELECT * FROM leads WHERE id = $1`, [req.params.id])
+        await run(`
+          INSERT INTO operations (id, lead_id, status, responsible, "embeddedValue", "feePercent", "createdAt", "updatedAt")
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        `, [genId(), req.params.id, 'Documentação', updatedLead.responsible||'',
+            parseFloat(updatedLead.embeddedValue)||0, updatedLead.feePercent||50, now, now])
       }
     }
 
-    // Trigger: se saiu de 'Contrato Assinado' para status anterior (movimento de volta),
-    // deletar a operação vinculada — ela não deve mais existir
     if (ex.status === 'Contrato Assinado' && newStatus !== 'Contrato Assinado' && !newIsLost) {
-      await run(db, `DELETE FROM operations WHERE lead_id = ?`, [req.params.id])
+      await run(`DELETE FROM operations WHERE lead_id = $1`, [req.params.id])
     }
 
-    res.json(await get(db, 'SELECT * FROM leads WHERE id = ?', [req.params.id]))
+    res.json(await get(`SELECT * FROM leads WHERE id = $1`, [req.params.id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 app.delete('/api/leads/:id', async (req, res) => {
-  try { await run(db, 'DELETE FROM leads WHERE id = ?', [req.params.id]); res.json({ ok: true }) }
+  try { await run(`DELETE FROM leads WHERE id = $1`, [req.params.id]); res.json({ ok: true }) }
   catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 // ─── Operations ───────────────────────────────────────────────────────────────
 
-// IMPORTANTE: rota específica antes da rota com :id
+const OP_JOIN = `
+  SELECT o.*, l.name as lead_name, l.phone as lead_phone,
+         l.source as lead_source,
+         l."adCampaign" as lead_adCampaign, l."adSet" as lead_adSet, l."adName" as lead_adName,
+         l.cpf as lead_cpf, l.responsible as lead_responsible,
+         l."embeddedValue" as lead_embeddedValue, l."feePercent" as lead_feePercent
+  FROM operations o
+  JOIN leads l ON l.id = o.lead_id
+`
+
 app.get('/api/operations/by-lead/:lead_id', async (req, res) => {
   try {
-    const op = await get(db, `
-      SELECT o.*, l.name as lead_name, l.phone as lead_phone,
-             l.source as lead_source,
-             l.adCampaign as lead_adCampaign, l.adSet as lead_adSet, l.adName as lead_adName,
-             l.cpf as lead_cpf, l.responsible as lead_responsible,
-             l.embeddedValue as lead_embeddedValue, l.feePercent as lead_feePercent
-      FROM operations o
-      JOIN leads l ON l.id = o.lead_id
-      WHERE o.lead_id = ?
-    `, [req.params.lead_id])
+    const op = await get(OP_JOIN + ` WHERE o.lead_id = $1`, [req.params.lead_id])
     if (!op) return res.status(404).json({ error: 'Operação não encontrada' })
     res.json(op)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 app.get('/api/operations', async (req, res) => {
-  try {
-    const rows = await all(db, `
-      SELECT o.*, l.name as lead_name, l.phone as lead_phone,
-             l.source as lead_source,
-             l.adCampaign as lead_adCampaign, l.adSet as lead_adSet, l.adName as lead_adName,
-             l.cpf as lead_cpf, l.responsible as lead_responsible,
-             l.embeddedValue as lead_embeddedValue, l.feePercent as lead_feePercent
-      FROM operations o
-      JOIN leads l ON l.id = o.lead_id
-      ORDER BY o.createdAt DESC
-    `)
-    res.json(rows)
-  } catch (e) { res.status(500).json({ error: e.message }) }
+  try { res.json(await all(OP_JOIN + ` ORDER BY o."createdAt" DESC`)) }
+  catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 app.get('/api/operations/:id', async (req, res) => {
   try {
-    const op = await get(db, `
-      SELECT o.*, l.name as lead_name, l.phone as lead_phone,
-             l.source as lead_source,
-             l.adCampaign as lead_adCampaign, l.adSet as lead_adSet, l.adName as lead_adName,
-             l.cpf as lead_cpf, l.responsible as lead_responsible,
-             l.embeddedValue as lead_embeddedValue, l.feePercent as lead_feePercent
-      FROM operations o
-      JOIN leads l ON l.id = o.lead_id
-      WHERE o.id = ?
-    `, [req.params.id])
+    const op = await get(OP_JOIN + ` WHERE o.id = $1`, [req.params.id])
     if (!op) return res.status(404).json({ error: 'Operação não encontrada' })
     res.json(op)
   } catch (e) { res.status(500).json({ error: e.message }) }
@@ -419,13 +283,12 @@ app.put('/api/operations/:id', async (req, res) => {
   try {
     const d = req.body
     const now = new Date().toISOString()
-    const ex = await get(db, 'SELECT * FROM operations WHERE id = ?', [req.params.id])
+    const ex = await get(`SELECT * FROM operations WHERE id = $1`, [req.params.id])
     if (!ex) return res.status(404).json({ error: 'Operação não encontrada' })
 
-    // Mesma lógica de perda vertical do funil comercial
     const requestingLoss   = d.isLost === true  || d.isLost === 1
-    const requestingRevive = d.isLost === false || d.isLost === 0
-    let newIsLost = ex.isLost
+    const requestingRevive = d.isLost === false  || d.isLost === 0
+    let newIsLost    = ex.isLost
     let opLossReason = d.lossReason ?? ex.lossReason
     let opLastActive = ex.lastActiveStatus
 
@@ -439,52 +302,28 @@ app.put('/api/operations/:id', async (req, res) => {
 
     const newStatus = d.status ?? ex.status
 
-    await run(db, `
-      UPDATE operations SET
-        status=?, isLost=?, lossReason=?, lastActiveStatus=?,
-        updatedAt=?
-      WHERE id=?
-    `, [
-      newStatus, newIsLost, opLossReason, opLastActive,
-      now, req.params.id,
-    ])
+    await run(`
+      UPDATE operations SET status=$1, "isLost"=$2, "lossReason"=$3, "lastActiveStatus"=$4, "updatedAt"=$5
+      WHERE id=$6
+    `, [newStatus, newIsLost, opLossReason, opLastActive, now, req.params.id])
 
-    // Propagação de perda operacional → comercial
-    // Quando a operação é marcada como perdida, o lead comercial também perde.
-    // lastActiveStatus do lead recebe o status da operação (ex: "7. Solicitação de Estorno")
     if (requestingLoss && !ex.isLost) {
-      await run(db, `
-        UPDATE leads SET isLost=1, lossReason=?, lastActiveStatus=?, updatedAt=?
-        WHERE id=?
-      `, [opLossReason, ex.status, now, ex.lead_id])
+      await run(`UPDATE leads SET "isLost"=1, "lossReason"=$1, "lastActiveStatus"=$2, "updatedAt"=$3 WHERE id=$4`,
+        [opLossReason, ex.status, now, ex.lead_id])
     }
-
-    // Quando a operação é reativada, reativa também o lead comercial
     if (requestingRevive && ex.isLost) {
-      await run(db, `
-        UPDATE leads SET isLost=0, lossReason='', updatedAt=?
-        WHERE id=?
-      `, [now, ex.lead_id])
+      await run(`UPDATE leads SET "isLost"=0, "lossReason"='', "updatedAt"=$1 WHERE id=$2`, [now, ex.lead_id])
     }
 
-    res.json(await get(db, `
-      SELECT o.*, l.name as lead_name, l.phone as lead_phone,
-             l.source as lead_source,
-             l.adCampaign as lead_adCampaign, l.adSet as lead_adSet, l.adName as lead_adName,
-             l.cpf as lead_cpf, l.responsible as lead_responsible,
-             l.embeddedValue as lead_embeddedValue, l.feePercent as lead_feePercent
-      FROM operations o JOIN leads l ON l.id = o.lead_id
-      WHERE o.id = ?
-    `, [req.params.id]))
+    res.json(await get(OP_JOIN + ` WHERE o.id = $1`, [req.params.id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-// ─── Contracts (contratos bancários do cliente) ───────────────────────────────
+// ─── Contracts ────────────────────────────────────────────────────────────────
 
 app.get('/api/leads/:lead_id/contracts', async (req, res) => {
-  try {
-    res.json(await all(db, `SELECT * FROM contracts WHERE lead_id = ? ORDER BY createdAt ASC`, [req.params.lead_id]))
-  } catch (e) { res.status(500).json({ error: e.message }) }
+  try { res.json(await all(`SELECT * FROM contracts WHERE lead_id = $1 ORDER BY "createdAt" ASC`, [req.params.lead_id])) }
+  catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 app.post('/api/leads/:lead_id/contracts', async (req, res) => {
@@ -492,18 +331,17 @@ app.post('/api/leads/:lead_id/contracts', async (req, res) => {
     const c = req.body
     const now = new Date().toISOString()
     const id = genId()
-    await run(db, `
-      INSERT INTO contracts (id, lead_id, bank, type, status, embeddedValue, productsCount, notes, pdfFile, pdfName, createdAt, updatedAt)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    await run(`
+      INSERT INTO contracts (id, lead_id, bank, type, status, "embeddedValue", "productsCount", notes, "pdfFile", "pdfName", "createdAt", "updatedAt")
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
     `, [
       id, req.params.lead_id,
       c.bank||'', c.type||'', c.status||'Aguardando envio',
       parseFloat(c.embeddedValue)||0, parseInt(c.productsCount)||0,
-      c.notes||'', c.pdfFile||null, c.pdfName||'', now, now,
+      c.notes||'', c.pdfFile||'', c.pdfName||'', now, now,
     ])
-    // Recalcular embeddedValue do lead como soma dos contratos
     await syncLeadEmbedded(req.params.lead_id, now)
-    res.status(201).json(await get(db, `SELECT * FROM contracts WHERE id = ?`, [id]))
+    res.status(201).json(await get(`SELECT * FROM contracts WHERE id = $1`, [id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
@@ -511,11 +349,12 @@ app.put('/api/leads/:lead_id/contracts/:id', async (req, res) => {
   try {
     const c = req.body
     const now = new Date().toISOString()
-    const ex = await get(db, `SELECT * FROM contracts WHERE id = ? AND lead_id = ?`, [req.params.id, req.params.lead_id])
+    const ex = await get(`SELECT * FROM contracts WHERE id = $1 AND lead_id = $2`, [req.params.id, req.params.lead_id])
     if (!ex) return res.status(404).json({ error: 'Contrato não encontrado' })
-    await run(db, `
-      UPDATE contracts SET bank=?,type=?,status=?,embeddedValue=?,productsCount=?,notes=?,pdfFile=?,pdfName=?,updatedAt=?
-      WHERE id=?
+    await run(`
+      UPDATE contracts SET bank=$1, type=$2, status=$3, "embeddedValue"=$4, "productsCount"=$5,
+        notes=$6, "pdfFile"=$7, "pdfName"=$8, "updatedAt"=$9
+      WHERE id=$10
     `, [
       c.bank??ex.bank, c.type??ex.type, c.status??ex.status,
       parseFloat(c.embeddedValue??ex.embeddedValue)||0,
@@ -527,75 +366,67 @@ app.put('/api/leads/:lead_id/contracts/:id', async (req, res) => {
     ])
     await syncLeadEmbedded(req.params.lead_id, now)
     await autoAdvanceLeadStatus(req.params.lead_id, c.status, now)
-    res.json(await get(db, `SELECT * FROM contracts WHERE id = ?`, [req.params.id]))
+    res.json(await get(`SELECT * FROM contracts WHERE id = $1`, [req.params.id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 app.delete('/api/leads/:lead_id/contracts/:id', async (req, res) => {
   try {
-    await run(db, `DELETE FROM tasks WHERE contract_id = ?`, [req.params.id])
-    await run(db, `DELETE FROM contracts WHERE id = ? AND lead_id = ?`, [req.params.id, req.params.lead_id])
-    const now = new Date().toISOString()
-    await syncLeadEmbedded(req.params.lead_id, now)
+    await run(`DELETE FROM tasks WHERE contract_id = $1`, [req.params.id])
+    await run(`DELETE FROM contracts WHERE id = $1 AND lead_id = $2`, [req.params.id, req.params.lead_id])
+    await syncLeadEmbedded(req.params.lead_id, new Date().toISOString())
     res.json({ ok: true })
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-// Se contrato vai para "Revisar contrato" e lead está em Qualificação ou Qualificado → avança para Revisão
 async function autoAdvanceLeadStatus(leadId, contractStatus, now) {
-  const lead = await get(db, `SELECT status FROM leads WHERE id=?`, [leadId])
+  const lead = await get(`SELECT status FROM leads WHERE id=$1`, [leadId])
   if (!lead) return
-  const cur = lead.status
   if (contractStatus === 'Revisar contrato') {
-    if (cur === 'Qualificação' || cur === 'Qualificado') {
-      await run(db, `UPDATE leads SET status='Revisão', updatedAt=? WHERE id=?`, [now, leadId])
+    if (lead.status === 'Qualificação' || lead.status === 'Qualificado') {
+      await run(`UPDATE leads SET status='Revisão', "updatedAt"=$1 WHERE id=$2`, [now, leadId])
     }
   }
 }
 
 async function syncLeadEmbedded(leadId, now) {
-  const result = await get(db, `SELECT COALESCE(SUM(embeddedValue),0) as total FROM contracts WHERE lead_id=?`, [leadId])
-  const total = result?.total || 0
-  await run(db, `UPDATE leads SET embeddedValue=?, updatedAt=? WHERE id=?`, [total, now, leadId])
-  await run(db, `UPDATE operations SET embeddedValue=?, updatedAt=? WHERE lead_id=?`, [total, now, leadId])
+  const result = await get(`SELECT COALESCE(SUM("embeddedValue"),0) as total FROM contracts WHERE lead_id=$1`, [leadId])
+  const total = parseFloat(result?.total) || 0
+  await run(`UPDATE leads SET "embeddedValue"=$1, "updatedAt"=$2 WHERE id=$3`, [total, now, leadId])
+  await run(`UPDATE operations SET "embeddedValue"=$1, "updatedAt"=$2 WHERE lead_id=$3`, [total, now, leadId])
 }
 
 // ─── Tasks ────────────────────────────────────────────────────────────────────
 
 app.get('/api/tasks', async (req, res) => {
   try {
-    const rows = await all(db, `
+    res.json(await all(`
       SELECT t.*,
-        l.name as lead_name, l.phone as lead_phone, l.status as lead_status, l.isLost as lead_isLost,
+        l.name as lead_name, l.phone as lead_phone, l.status as lead_status, l."isLost" as lead_isLost,
         c.bank as contract_bank, c.type as contract_type
       FROM tasks t
       JOIN leads l ON l.id = t.lead_id
       LEFT JOIN contracts c ON c.id = t.contract_id
-      ORDER BY t.dueDate ASC, t.dueTime ASC, t.createdAt ASC
-    `)
-    res.json(rows)
+      ORDER BY t."dueDate" ASC, t."dueTime" ASC, t."createdAt" ASC
+    `))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 app.get('/api/leads/:lead_id/tasks', async (req, res) => {
   try {
-    const rows = await all(db, `
+    res.json(await all(`
       SELECT t.*, c.bank as contract_bank, c.type as contract_type
       FROM tasks t
       LEFT JOIN contracts c ON c.id = t.contract_id
-      WHERE t.lead_id = ?
-      ORDER BY t.dueDate ASC, t.dueTime ASC, t.createdAt ASC
-    `, [req.params.lead_id])
-    res.json(rows)
+      WHERE t.lead_id = $1
+      ORDER BY t."dueDate" ASC, t."dueTime" ASC, t."createdAt" ASC
+    `, [req.params.lead_id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 app.get('/api/contracts/:contract_id/tasks', async (req, res) => {
   try {
-    const rows = await all(db, `
-      SELECT * FROM tasks WHERE contract_id = ? AND status = 'pending' ORDER BY createdAt ASC
-    `, [req.params.contract_id])
-    res.json(rows)
+    res.json(await all(`SELECT * FROM tasks WHERE contract_id = $1 AND status = 'pending' ORDER BY "createdAt" ASC`, [req.params.contract_id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
@@ -604,19 +435,18 @@ app.post('/api/tasks', async (req, res) => {
     const t = req.body
     const now = new Date().toISOString()
     const id = genId()
-    // Garante unicidade: contrato só pode ter uma tarefa auto pendente
     if (t.isAuto && t.contract_id) {
-      await run(db, `DELETE FROM tasks WHERE contract_id = ? AND isAuto = 1 AND status = 'pending'`, [t.contract_id])
+      await run(`DELETE FROM tasks WHERE contract_id = $1 AND "isAuto" = 1 AND status = 'pending'`, [t.contract_id])
     }
-    await run(db, `
-      INSERT INTO tasks (id, lead_id, contract_id, type, description, assignedTo, dueDate, dueTime, status, isAuto, createdAt, updatedAt)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    await run(`
+      INSERT INTO tasks (id, lead_id, contract_id, type, description, "assignedTo", "dueDate", "dueTime", status, "isAuto", "createdAt", "updatedAt")
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
     `, [
       id, t.lead_id, t.contract_id||'', t.type||'Ligação',
       t.description||'', t.assignedTo||'', t.dueDate||'', t.dueTime||'',
       t.status||'pending', t.isAuto?1:0, now, now,
     ])
-    res.status(201).json(await get(db, `SELECT * FROM tasks WHERE id = ?`, [id]))
+    res.status(201).json(await get(`SELECT * FROM tasks WHERE id = $1`, [id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
@@ -624,32 +454,31 @@ app.put('/api/tasks/:id', async (req, res) => {
   try {
     const t = req.body
     const now = new Date().toISOString()
-    const ex = await get(db, `SELECT * FROM tasks WHERE id = ?`, [req.params.id])
+    const ex = await get(`SELECT * FROM tasks WHERE id = $1`, [req.params.id])
     if (!ex) return res.status(404).json({ error: 'Tarefa não encontrada' })
-    await run(db, `
-      UPDATE tasks SET type=?, description=?, assignedTo=?, dueDate=?, dueTime=?, status=?, updatedAt=?
-      WHERE id=?
+    await run(`
+      UPDATE tasks SET type=$1, description=$2, "assignedTo"=$3, "dueDate"=$4, "dueTime"=$5, status=$6, "updatedAt"=$7
+      WHERE id=$8
     `, [
       t.type??ex.type, t.description??ex.description,
       t.assignedTo??ex.assignedTo, t.dueDate??ex.dueDate,
       t.dueTime??ex.dueTime, t.status??ex.status,
       now, req.params.id,
     ])
-    res.json(await get(db, `SELECT * FROM tasks WHERE id = ?`, [req.params.id]))
+    res.json(await get(`SELECT * FROM tasks WHERE id = $1`, [req.params.id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 app.delete('/api/tasks/:id', async (req, res) => {
-  try {
-    await run(db, `DELETE FROM tasks WHERE id = ?`, [req.params.id])
-    res.json({ ok: true })
-  } catch (e) { res.status(500).json({ error: e.message }) }
+  try { await run(`DELETE FROM tasks WHERE id = $1`, [req.params.id]); res.json({ ok: true }) }
+  catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
+
 app.get('/api/settings', async (req, res) => {
   try {
-    const rows = await all(db, 'SELECT key, value FROM settings')
+    const rows = await all(`SELECT key, value FROM settings`)
     const obj = {}
     rows.forEach(r => { obj[r.key] = r.value })
     res.json(obj)
@@ -659,23 +488,48 @@ app.get('/api/settings', async (req, res) => {
 app.put('/api/settings', async (req, res) => {
   try {
     for (const [k, v] of Object.entries(req.body)) {
-      await run(db, `INSERT INTO settings (key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, [k, v])
+      await run(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [k, v])
     }
     res.json(req.body)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-app.get('/api/backup', (req, res) => {
-  res.setHeader('Content-Type', 'application/octet-stream')
-  res.setHeader('Content-Disposition', `attachment; filename="leme-crm-backup-${Date.now()}.db"`)
-  fs.createReadStream(DB_PATH).pipe(res)
+// ─── Backup ───────────────────────────────────────────────────────────────────
+
+app.get('/api/backup', async (req, res) => {
+  try {
+    const [leads, operations, contracts, tasks, settings] = await Promise.all([
+      all(`SELECT * FROM leads ORDER BY "createdAt" ASC`),
+      all(`SELECT * FROM operations ORDER BY "createdAt" ASC`),
+      all(`SELECT * FROM contracts ORDER BY "createdAt" ASC`),
+      all(`SELECT * FROM tasks ORDER BY "createdAt" ASC`),
+      all(`SELECT key, value FROM settings`),
+    ])
+    const backup = { exportedAt: new Date().toISOString(), leads, operations, contracts, tasks, settings }
+    res.setHeader('Content-Type', 'application/json')
+    res.setHeader('Content-Disposition', `attachment; filename="leme-crm-backup-${Date.now()}.json"`)
+    res.json(backup)
+  } catch (e) { res.status(500).json({ error: e.message }) }
 })
+
+// ─── Frontend (produção) ──────────────────────────────────────────────────────
+// Em produção (NODE_ENV=production), serve o build do React.
+// Em desenvolvimento local, o Vite roda separado — essas linhas não fazem nada.
+
+const DIST = path.join(__dirname, '../client/dist')
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(DIST))
+  app.get('*', (req, res) => res.sendFile(path.join(DIST, 'index.html')))
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
 
 initDb().then(() => {
   app.listen(PORT, '0.0.0.0', () => {
     console.log('╔════════════════════════════════════════════════╗')
     console.log('║  Leme Financeira — CRM Server                  ║')
     console.log(`║  Rodando em http://0.0.0.0:${PORT}                 ║`)
+    console.log('║  Banco: PostgreSQL                             ║')
     console.log('╚════════════════════════════════════════════════╝')
   })
 }).catch(err => { console.error('Falha ao inicializar banco:', err); process.exit(1) })

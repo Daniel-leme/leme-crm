@@ -9,6 +9,13 @@ client/dist/
 *.log
 npm-debug.log*
 
+# Variáveis de ambiente (nunca subir para o git — contém senha do banco)
+.env
+*.env
+
+# Banco SQLite legado (substituído pelo PostgreSQL)
+*.db
+
 # Sistema operacional
 .DS_Store
 Thumbs.db

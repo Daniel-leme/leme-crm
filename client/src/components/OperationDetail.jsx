@@ -1,6 +1,17 @@
 import { useState } from 'react'
-import { OPERATIONAL_STATUSES, OPERATIONAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS } from '../constants'
+import { OPERATIONAL_STATUSES, OPERATIONAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS, fmtDate, fmtCurrency } from '../constants'
 import StatusBadge from './StatusBadge'
+
+function InfoRow({ icon, label, value }) {
+  if (!value) return null
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+      <i className={`ti ${icon}`} style={{ fontSize: 15, color: 'var(--color-text-hint)', marginTop: 1, flexShrink: 0, width: 18 }} aria-hidden="true" />
+      <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', width: 140, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 13, color: 'var(--color-text-primary)', wordBreak: 'break-word' }}>{value}</span>
+    </div>
+  )
+}
 
 const CHEVRON_H   = 36
 const CHEVRON_P   = 12
@@ -155,7 +166,7 @@ function LossReasonModal({ lossReasons, onConfirm, onCancel }) {
   )
 }
 
-export default function OperationDetail({ operation, settings, onStatusChange, onOpenLead }) {
+export default function OperationDetail({ operation, lead, settings, onStatusChange, onOpenLead, onEditLead, onRefresh, onTaskEdited, onTaskDeleted }) {
   const lossReasons = settings?.lossReasons
     ? JSON.parse(settings.lossReasons)
     : DEFAULT_LOSS_REASONS
@@ -165,11 +176,8 @@ export default function OperationDetail({ operation, settings, onStatusChange, o
   const isLost = !!operation.isLost
 
   const handleStepClick = (step, isLostStep) => {
-    if (isLostStep) {
-      setShowLossModal(true)
-    } else {
-      onStatusChange && onStatusChange(step)
-    }
+    if (isLostStep) { setShowLossModal(true) }
+    else { onStatusChange && onStatusChange(step) }
   }
 
   const handleConfirmLoss = (reason) => {
@@ -177,9 +185,17 @@ export default function OperationDetail({ operation, settings, onStatusChange, o
     onStatusChange && onStatusChange('__lost__', reason)
   }
 
-  const handleRevive = () => {
-    onStatusChange && onStatusChange('__revive__')
-  }
+  const handleRevive = () => onStatusChange && onStatusChange('__revive__')
+
+  const emb  = parseFloat(lead?.embeddedValue) || 0
+  const leme = emb * ((lead?.feePercent ?? 50) / 100)
+  const opMeta = isLost
+    ? { color: 'var(--color-red-dark)', bg: 'var(--color-red-bg)' }
+    : (OPERATIONAL_STATUS_META[operation.status] || OPERATIONAL_STATUS_META['Documentação'])
+
+  const whatsappHref = lead?.phone
+    ? `https://wa.me/55${(lead.phone).replace(/\D/g, '')}`
+    : null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -194,81 +210,98 @@ export default function OperationDetail({ operation, settings, onStatusChange, o
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={{ background: 'var(--color-surface)', border: `1px solid ${isLost ? 'var(--color-red-border, #f5c6cb)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-xl)', padding: '20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12, flexWrap: 'wrap' }}>
-          <div style={{ width: 52, height: 52, borderRadius: '50%', background: isLost ? 'var(--color-red-bg)' : '#E3F2FD', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 600, color: isLost ? 'var(--color-red-dark)' : '#1565C0', flexShrink: 0 }}>
+
+        {/* Topo: avatar + nome + botões */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{
+            width: 52, height: 52, borderRadius: '50%', flexShrink: 0,
+            background: opMeta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 17, fontWeight: 600, color: opMeta.color,
+          }}>
             {(operation.lead_name || '?').split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase()}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h3 style={{ margin: 0, fontSize: 17, fontWeight: 600 }}>{operation.lead_name || '(sem nome)'}</h3>
-            <div style={{ marginTop: 5, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ marginTop: 5 }}>
               <StatusBadge status={isLost ? 'Perdido' : operation.status} />
             </div>
           </div>
-          {onOpenLead && (
-            <button
-              onClick={onOpenLead}
-              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', fontSize: 13, cursor: 'pointer', flexShrink: 0 }}
-            >
-              <i className="ti ti-briefcase" style={{ fontSize: 14 }} aria-hidden="true" />
-              Ver lead comercial
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
+            {whatsappHref && (
+              <a href={whatsappHref} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 'var(--radius-md)', background: '#25D366', color: '#fff', fontSize: 13, fontWeight: 500, textDecoration: 'none' }}>
+                <i className="ti ti-brand-whatsapp" style={{ fontSize: 15 }} />
+                WhatsApp
+              </a>
+            )}
+            {onEditLead && (
+              <button onClick={onEditLead}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', fontSize: 13, cursor: 'pointer' }}>
+                <i className="ti ti-pencil" style={{ fontSize: 14 }} />
+                Editar
+              </button>
+            )}
+            {onOpenLead && (
+              <button onClick={onOpenLead}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', fontSize: 13, cursor: 'pointer' }}>
+                <i className="ti ti-briefcase" style={{ fontSize: 14 }} />
+                Ver no comercial
+              </button>
+            )}
+          </div>
         </div>
 
-        <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {operation.lead_phone && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--color-text-secondary)' }}>
-              <i className="ti ti-phone" style={{ fontSize: 14, flexShrink: 0 }} aria-hidden="true" />
-              {operation.lead_phone}
-              {operation.lead_source && <span style={{ marginLeft: 4 }}>· {operation.lead_source}</span>}
-            </div>
-          )}
-          {(operation.lead_adCampaign || operation.lead_adSet || operation.lead_adName) && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: 'var(--color-text-hint)', flexWrap: 'wrap' }}>
-              <i className="ti ti-ad-2" style={{ fontSize: 13, flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
-              <span>
-                {[operation.lead_adCampaign, operation.lead_adSet, operation.lead_adName].filter(Boolean).join(' › ')}
+        {/* Funil operacional — dentro do card, igual ao comercial */}
+        <div style={{ marginBottom: 12 }}>
+          {isLost && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 12px', background: 'var(--color-red-bg)', borderRadius: 8, border: '1px solid var(--color-red-border, #f5c6cb)' }}>
+              <i className="ti ti-circle-x" style={{ fontSize: 14, color: 'var(--color-red-dark)', flexShrink: 0 }} aria-hidden="true" />
+              <span style={{ fontSize: 12, color: 'var(--color-red-dark)', fontWeight: 500, flex: 1 }}>
+                Perdido — <strong>{operation.lossReason || 'sem motivo'}</strong>
+                {operation.lastActiveStatus ? ` · estava em ${operation.lastActiveStatus}` : ''}
               </span>
+              <button onClick={handleRevive} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--color-red-dark)', background: '#fff', color: 'var(--color-red-dark)', fontWeight: 500, cursor: 'pointer', flexShrink: 0 }}>
+                Reativar
+              </button>
             </div>
           )}
+          <FunnelPipeline
+            statuses={OPERATIONAL_STATUSES}
+            statusMeta={OPERATIONAL_STATUS_META}
+            currentStatus={operation.status}
+            isLost={isLost}
+            onSelect={handleStepClick}
+            extraStep={operation.status !== 'Concluído' ? 'Perdido' : null}
+          />
         </div>
-      </div>
 
-      {/* ── Funil Operacional — esteira de etapas ─────────────────────────── */}
-      <div style={{
-        background: 'var(--color-surface)',
-        border: `1px solid ${isLost ? 'var(--color-red-border, #f5c6cb)' : 'var(--color-border)'}`,
-        borderRadius: 'var(--radius-xl)', padding: '18px 20px',
-      }}>
-        <p style={{ margin: '0 0 14px', fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <i className="ti ti-arrow-right-bar" style={{ fontSize: 14 }} aria-hidden="true" />
-          Funil Operacional
-        </p>
+        {/* Informações do lead */}
+        <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4 }}>
+          <InfoRow icon="ti-phone"        label="Telefone"      value={lead?.phone} />
+          <InfoRow icon="ti-mail"         label="E-mail"        value={lead?.email} />
+          <InfoRow icon="ti-id-badge"     label="CPF"           value={lead?.cpf} />
+          <InfoRow icon="ti-user"         label="Responsável"   value={lead?.responsible} />
+          <InfoRow icon="ti-map-pin"      label="Origem"        value={lead?.source} />
+          <InfoRow icon="ti-calendar"     label="Cadastrado em" value={lead?.createdAt ? fmtDate(lead.createdAt.slice(0,10)) : ''} />
+          {(lead?.adCampaign || lead?.adSet || lead?.adName) && (
+            <InfoRow icon="ti-ad-2" label="Meta Ads"
+              value={[lead.adCampaign, lead.adSet, lead.adName].filter(Boolean).join(' · ')} />
+          )}
+          {emb > 0 && (
+            <InfoRow icon="ti-coin"       label="Valor embutido" value={fmtCurrency(emb)} />
+          )}
+          {leme > 0 && (
+            <InfoRow icon="ti-trending-up" label="Honorários"   value={fmtCurrency(leme)} />
+          )}
+        </div>
 
-        {isLost && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, padding: '10px 14px', background: 'var(--color-red-bg)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-red-border, #f5c6cb)' }}>
-            <i className="ti ti-circle-x" style={{ fontSize: 16, color: 'var(--color-red-dark)', flexShrink: 0 }} aria-hidden="true" />
-            <span style={{ fontSize: 13, color: 'var(--color-red-dark)', fontWeight: 500, flex: 1 }}>
-              Operação perdida — <strong>{operation.lossReason || 'sem motivo'}</strong>
-              {operation.lastActiveStatus ? ` · estava em ${operation.lastActiveStatus}` : ''}
-            </span>
-            <button
-              onClick={handleRevive}
-              style={{ fontSize: 12, padding: '4px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-red-dark)', background: '#fff', color: 'var(--color-red-dark)', fontWeight: 500, cursor: 'pointer', flexShrink: 0 }}
-            >
-              Reativar
-            </button>
+        {/* Observações */}
+        {lead?.notes && (
+          <div style={{ marginTop: 12, padding: '12px 14px', background: 'var(--color-bg)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
+            <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 600, color: 'var(--color-text-hint)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Observações</p>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.5 }}>{lead.notes}</p>
           </div>
         )}
-
-        <FunnelPipeline
-          statuses={OPERATIONAL_STATUSES}
-          statusMeta={OPERATIONAL_STATUS_META}
-          currentStatus={operation.status}
-          isLost={isLost}
-          onSelect={handleStepClick}
-          extraStep={operation.status !== 'Concluído' ? 'Perdido' : null}
-        />
       </div>
 
     </div>

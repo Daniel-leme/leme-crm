@@ -416,7 +416,7 @@ export default function App() {
               )}
 
               {view === 'list' && (
-                <LeadList leads={leads} tasks={tasks} onSelect={openDetail} onNew={openNew} />
+                <LeadList leads={leads} tasks={tasks} operations={operations} onSelect={openDetail} onNew={openNew} />
               )}
 
               {view === 'form' && (
@@ -452,15 +452,20 @@ export default function App() {
               {view === 'operation-detail' && selectedOp && settings && (
                 <OperationDetail
                   operation={selectedOp}
+                  lead={leads.find(l => l.id === selectedOp.lead_id) || null}
                   settings={settings}
                   onStatusChange={changeOperationStatus}
                   onOpenLead={() => { setSelectedId(selectedOp.lead_id); setView('detail') }}
+                  onEditLead={() => { const l = leads.find(x => x.id === selectedOp.lead_id); if (l) { setForm({ ...l }); setView('form') } }}
+                  onRefresh={refresh}
+                  onTaskEdited={clearFiredForTask}
+                  onTaskDeleted={removeNotificationsForTask}
                 />
               )}
             </div>
           </div>
 
-          {/* Painel lateral de tarefas — só na view detail */}
+          {/* Painel lateral de tarefas — view detail (comercial) e operation-detail */}
           {view === 'detail' && selected && settings && !isMobile && (
             <TaskSidePanel
               lead={selected}
@@ -474,6 +479,22 @@ export default function App() {
               }}
             />
           )}
+          {view === 'operation-detail' && selectedOp && settings && !isMobile && (() => {
+            const opLead = leads.find(l => l.id === selectedOp.lead_id)
+            return opLead ? (
+              <TaskSidePanel
+                lead={opLead}
+                settings={settings}
+                onTaskCreated={refresh}
+                onTaskEdited={clearFiredForTask}
+                onTaskDeleted={removeNotificationsForTask}
+                onContractUpdate={async (contractId, data) => {
+                  await apiUpdateContract(opLead.id, contractId, data)
+                  refresh()
+                }}
+              />
+            ) : null
+          })()}
 
         </div>
 
