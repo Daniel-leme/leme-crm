@@ -121,7 +121,8 @@ async function initDb() {
       'Inter','C6 Bank','C6 Consignado','Daycoval','Facta','Agibank','Mercantil','Outro'
     ]),
     responsibles: JSON.stringify(['Riquelme', 'Daniel']),
-    lossReasons:  JSON.stringify(['Desqualificado', 'Sem Valores', 'Sem Contato', 'Desistiu']),
+    lossReasons:   JSON.stringify(['Desqualificado', 'Sem Valores', 'Sem Contato', 'Desistiu']),
+    opLossReasons: JSON.stringify(['Banco recusou', 'Documentação incompleta', 'Cliente desistiu após assinar', 'Sem Contato']),
     taskTypes:    JSON.stringify(['Ligação', 'WhatsApp / Follow-up', 'Reunião', 'Envio de documento', 'Outro']),
     leadSources:  JSON.stringify(['Instagram', 'Facebook', 'Indicação', 'Google', 'WhatsApp', 'Outro']),
   }

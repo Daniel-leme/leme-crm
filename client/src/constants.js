@@ -60,6 +60,13 @@ export const LOSS_REASONS = [
   'Desistiu',
 ]
 
+export const OP_LOSS_REASONS = [
+  'Banco recusou',
+  'Documentação incompleta',
+  'Cliente desistiu após assinar',
+  'Sem Contato',
+]
+
 export const DEFAULT_TASK_TYPES = [
   'Ligação',
   'WhatsApp / Follow-up',

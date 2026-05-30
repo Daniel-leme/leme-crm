@@ -28,13 +28,31 @@ function LeadRow({ lead, onSelect, isOrphan, isLate, isToday, nextTask, opStatus
     : (COMMERCIAL_STATUS_META[statusKey] || COMMERCIAL_STATUS_META['Novo Lead'])
   // Para operacionais, usa bg mais claro que o meta.bg (que é saturado demais para fundo de coluna)
   const OP_SIDE_BG = {
-    'Documentação':              '#EEF6FD',
-    'Solicitação de Estorno':    '#FFFDF0',
-    'Aguardando Estorno':        '#FFF8F0',
-    'Cobrança':                  '#FAF0FF',
-    'Transferência de Repasses': '#EEF8EE',
-    'Concluído':                 '#EEF8EE',
+    'Documentação':              '#EEF4FB',
+    'Solicitação de Estorno':    '#FEF9EC',
+    'Aguardando Estorno':        '#FEF6EC',
+    'Cobrança':                  '#F7F0FE',
+    'Transferência de Repasses': '#F0F7F0',
+    'Concluído':                 '#F0F7F0',
     'Perdido':                   '#FEF2F2',
+  }
+  const OP_SIDE_COLOR = {
+    'Documentação':              '#1565C0',
+    'Solicitação de Estorno':    '#92610A',
+    'Aguardando Estorno':        '#9A4500',
+    'Cobrança':                  '#6A1B9A',
+    'Transferência de Repasses': '#2E6B2E',
+    'Concluído':                 '#2E6B2E',
+    'Perdido':                   'var(--color-red-dark)',
+  }
+  const OP_SIDE_ICON = {
+    'Documentação':              'ti-file-text',
+    'Solicitação de Estorno':    'ti-send',
+    'Aguardando Estorno':        'ti-hourglass',
+    'Cobrança':                  'ti-cash',
+    'Transferência de Repasses': 'ti-transfer',
+    'Concluído':                 'ti-trophy',
+    'Perdido':                   'ti-circle-x',
   }
   const sideBg = isContrato
     ? (OP_SIDE_BG[opStatus] || '#EEF8EE')
@@ -119,17 +137,21 @@ function LeadRow({ lead, onSelect, isOrphan, isLate, isToday, nextTask, opStatus
       </div>
 
       {/* ── Coluna direita: status + potencial ── */}
+      {(() => {
+        const rightColor = isContrato ? (OP_SIDE_COLOR[opStatus] || '#1565C0') : meta.color
+        const rightIcon  = isContrato ? (OP_SIDE_ICON[opStatus]  || 'ti-file-text') : meta.icon
+        return (
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center',
         padding: '13px 16px', gap: 6,
-        borderLeft: `1px solid ${meta.color}22`,
+        borderLeft: `1px solid ${rightColor}22`,
         background: sideBg,
         width: 170, flexShrink: 0,
       }}>
         {/* Status */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <i className={`ti ${meta.icon}`} style={{ fontSize: 13, color: meta.color }} />
-          <span style={{ fontSize: 12, fontWeight: 700, color: meta.color, whiteSpace: 'nowrap' }}>
+          <i className={`ti ${rightIcon}`} style={{ fontSize: 13, color: rightColor }} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: rightColor, whiteSpace: 'nowrap' }}>
             {statusKey}
           </span>
         </div>
@@ -144,6 +166,8 @@ function LeadRow({ lead, onSelect, isOrphan, isLate, isToday, nextTask, opStatus
           </span>
         </div>
       </div>
+        )
+      })()}
     </div>
   )
 }
@@ -412,15 +436,26 @@ export default function LeadList({ leads, tasks, operations, onSelect, onNew }) 
   const lostStage   = isLostMode && filterStatus.startsWith('Perdas:') ? filterStatus.slice('Perdas:'.length) : null
   // lostStage '__op__' = todas as perdas operacionais (vindas do funil operacional)
 
+  const searching = search.trim().length > 0
+
+  // Remove acentos e normaliza para comparação (ex: "Antonio" bate "Antônio")
+  const normalize = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  // Remove tudo que não é dígito (para buscar telefone/CPF sem formatação)
+  const onlyDigits = (s) => (s || '').replace(/\D/g, '')
+
   const applyFilters = (list) => {
-    const q = search.toLowerCase()
+    const q        = normalize(search)
+    const qDigits  = onlyDigits(search)
     const filtered = list.filter(l => {
-      if (!isLostMode && filterStatus === 'Todos' && l.status === 'Contrato Assinado') return false
+      if (!searching && !isLostMode && filterStatus === 'Todos' && l.status === 'Contrato Assinado') return false
       const matchSearch =
-        (l.name || '').toLowerCase().includes(q) ||
-        (l.phone || '').includes(q) ||
-        (l.cpf || '').includes(q)
-      const matchStatus = isLostMode
+        !q ||
+        normalize(l.name).includes(q) ||
+        (qDigits && onlyDigits(l.phone).includes(qDigits)) ||
+        (qDigits && onlyDigits(l.cpf).includes(qDigits))
+      const matchStatus = searching
+        ? true
+        : isLostMode
         ? (lostStage === '__op__'
             ? OPERATIONAL_STATUSES.includes(l.lastActiveStatus)
             : lostStage
@@ -461,14 +496,9 @@ export default function LeadList({ leads, tasks, operations, onSelect, onNew }) 
   )
   const concludedIds = new Set(concludedLeads.map(l => l.id))
 
-  const filteredActive    = isLostMode ? [] : applyFilters(activeLeads.filter(l => !concludedIds.has(l.id)))
-  const filteredConcluded = concludedLeads.filter(l => {
-    const q = search.toLowerCase()
-    const matchSearch = (l.name||'').toLowerCase().includes(q) || (l.phone||'').includes(q) || (l.cpf||'').includes(q)
-    const matchResp   = filterResp === 'Todos' || l.responsible === filterResp
-    return matchSearch && matchResp
-  })
-  const filteredLost = isLostMode ? applyFilters(lostLeads) : []
+  const filteredActive    = (isLostMode && !searching) ? [] : applyFilters(activeLeads.filter(l => !concludedIds.has(l.id)))
+  const filteredConcluded = applyFilters(concludedLeads)
+  const filteredLost      = (isLostMode || searching) ? applyFilters(lostLeads) : []
 
   // Métricas — baseadas em leads ativos (não perdidos)
   const funnelLeads   = activeLeads.filter(l => l.status !== 'Contrato Assinado')
@@ -539,8 +569,8 @@ export default function LeadList({ leads, tasks, operations, onSelect, onNew }) 
       </div>
 
       {/* ── Lista principal ───────────────────────────────────────────────── */}
-      {!isLostMode && (
-        filteredActive.length === 0 && concludedLeads.length === 0 ? (
+      {(!isLostMode || searching) && (
+        filteredActive.length === 0 && filteredConcluded.length === 0 && filteredLost.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '4rem 0', color: 'var(--color-text-hint)', fontSize: 14 }}>
             <i className="ti ti-users-group" style={{ fontSize: 40, display: 'block', marginBottom: 12 }} aria-hidden="true" />
             {activeLeads.length === 0 ? 'Nenhum lead cadastrado ainda.' : 'Nenhum lead encontrado para esse filtro.'}
@@ -560,7 +590,7 @@ export default function LeadList({ leads, tasks, operations, onSelect, onNew }) 
       )}
 
       {/* ── Acordeão de concluídos ───────────────────────────────────────── */}
-      {!isLostMode && concludedLeads.length > 0 && filterStatus === 'Contrato Assinado' && (
+      {(!isLostMode || searching) && filteredConcluded.length > 0 && (filterStatus === 'Contrato Assinado' || searching) && (
         <div style={{ borderRadius: 'var(--radius-lg)', border: '1px solid #A5D6A7', overflow: 'hidden' }}>
 
           {/* Cabeçalho clicável */}
@@ -569,7 +599,7 @@ export default function LeadList({ leads, tasks, operations, onSelect, onNew }) 
             style={{
               width: '100%', display: 'flex', alignItems: 'center', gap: 10,
               padding: '13px 16px', border: 'none', cursor: 'pointer',
-              background: concludedOpen ? '#E8F5E9' : '#F1FAF2',
+              background: concludedOpen || searching ? '#E8F5E9' : '#F1FAF2',
               transition: 'background 0.15s',
             }}
           >
@@ -588,13 +618,13 @@ export default function LeadList({ leads, tasks, operations, onSelect, onNew }) 
               </p>
             </div>
             <i
-              className={`ti ${concludedOpen ? 'ti-chevron-up' : 'ti-chevron-down'}`}
+              className={`ti ${(concludedOpen || searching) ? 'ti-chevron-up' : 'ti-chevron-down'}`}
               style={{ fontSize: 15, color: '#4CAF50', flexShrink: 0 }}
             />
           </button>
 
           {/* Lista expandida */}
-          {concludedOpen && (
+          {(concludedOpen || searching) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 10px 10px' }}>
               {filteredConcluded.length === 0 ? (
                 <p style={{ textAlign: 'center', fontSize: 13, color: 'var(--color-text-hint)', padding: '12px 0' }}>
@@ -611,17 +641,31 @@ export default function LeadList({ leads, tasks, operations, onSelect, onNew }) 
       )}
 
       {/* ── Seção de perdas ───────────────────────────────────────────────── */}
-      {isLostMode && (
-        filteredLost.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '4rem 0', color: 'var(--color-text-hint)', fontSize: 14 }}>
-            <i className="ti ti-circle-x" style={{ fontSize: 40, display: 'block', marginBottom: 12 }} aria-hidden="true" />
-            Nenhuma perda registrada.
+      {(isLostMode || searching) && filteredLost.length > 0 && (
+        searching ? (
+          <div style={{ borderRadius: 'var(--radius-lg)', border: '1px solid #FCA5A5', overflow: 'hidden' }}>
+            <div style={{ padding: '10px 16px 6px', background: '#FEE2E2', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <i className="ti ti-circle-x" style={{ fontSize: 14, color: 'var(--color-red-dark)' }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-red-dark)' }}>
+                Perdidos ({filteredLost.length})
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 10px 10px' }}>
+              {filteredLost.map(lead => <LeadRow key={lead.id} lead={lead} onSelect={onSelect} />)}
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {filteredLost.map(lead => <LeadRow key={lead.id} lead={lead} onSelect={onSelect} />)}
           </div>
         )
+      )}
+
+      {isLostMode && !searching && filteredLost.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '4rem 0', color: 'var(--color-text-hint)', fontSize: 14 }}>
+          <i className="ti ti-circle-x" style={{ fontSize: 40, display: 'block', marginBottom: 12 }} aria-hidden="true" />
+          Nenhuma perda registrada.
+        </div>
       )}
     </div>
   )

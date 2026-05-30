@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { OPERATIONAL_STATUSES, OPERATIONAL_STATUS_META, LOSS_REASONS as DEFAULT_LOSS_REASONS, fmtDate, fmtCurrency } from '../constants'
+import { OPERATIONAL_STATUSES, OPERATIONAL_STATUS_META, OP_LOSS_REASONS as DEFAULT_LOSS_REASONS, fmtDate, fmtCurrency } from '../constants'
 import StatusBadge from './StatusBadge'
 
 function InfoRow({ icon, label, value }) {
@@ -167,8 +167,8 @@ function LossReasonModal({ lossReasons, onConfirm, onCancel }) {
 }
 
 export default function OperationDetail({ operation, lead, settings, onStatusChange, onOpenLead, onEditLead, onRefresh, onTaskEdited, onTaskDeleted }) {
-  const lossReasons = settings?.lossReasons
-    ? JSON.parse(settings.lossReasons)
+  const lossReasons = settings?.opLossReasons
+    ? JSON.parse(settings.opLossReasons)
     : DEFAULT_LOSS_REASONS
 
   const [showLossModal, setShowLossModal] = useState(false)

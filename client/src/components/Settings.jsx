@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { DEFAULT_BANKS, LEAD_SOURCES, LOSS_REASONS, DEFAULT_TASK_TYPES } from '../constants'
+import { DEFAULT_BANKS, LEAD_SOURCES, LOSS_REASONS, OP_LOSS_REASONS, DEFAULT_TASK_TYPES } from '../constants'
 
 function Field({ label, hint, children, full }) {
   return (
@@ -88,32 +88,29 @@ function TagEditor({ items, onChange, placeholder }) {
 }
 
 export default function Settings({ settings, onSave }) {
-  const [form, setForm] = useState({
+  const parse = (key, fallback) => JSON.parse(settings[key] || JSON.stringify(fallback))
+  const initial = {
     ...settings,
-    banks:        JSON.parse(settings.banks        || JSON.stringify(DEFAULT_BANKS)),
-    responsibles: JSON.parse(settings.responsibles || '["Riquelme","Daniel"]'),
-    lossReasons:  JSON.parse(settings.lossReasons  || JSON.stringify(LOSS_REASONS)),
-    leadSources:  JSON.parse(settings.leadSources  || JSON.stringify(LEAD_SOURCES)),
-    taskTypes:    JSON.parse(settings.taskTypes    || JSON.stringify(DEFAULT_TASK_TYPES)),
-  })
-  const set = (k, v) => setForm({ ...form, [k]: v })
-  const dirty = JSON.stringify(form) !== JSON.stringify({
-    ...settings,
-    banks:        JSON.parse(settings.banks        || JSON.stringify(DEFAULT_BANKS)),
-    responsibles: JSON.parse(settings.responsibles || '["Riquelme","Daniel"]'),
-    lossReasons:  JSON.parse(settings.lossReasons  || JSON.stringify(LOSS_REASONS)),
-    leadSources:  JSON.parse(settings.leadSources  || JSON.stringify(LEAD_SOURCES)),
-    taskTypes:    JSON.parse(settings.taskTypes    || JSON.stringify(DEFAULT_TASK_TYPES)),
-  })
+    banks:         parse('banks',         DEFAULT_BANKS),
+    responsibles:  parse('responsibles',  ['Riquelme', 'Daniel']),
+    lossReasons:   parse('lossReasons',   LOSS_REASONS),
+    opLossReasons: parse('opLossReasons', OP_LOSS_REASONS),
+    leadSources:   parse('leadSources',   LEAD_SOURCES),
+    taskTypes:     parse('taskTypes',     DEFAULT_TASK_TYPES),
+  }
+  const [form, setForm] = useState(initial)
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial)
 
   const handleSave = () => {
     onSave({
       ...form,
-      banks:        JSON.stringify(form.banks),
-      responsibles: JSON.stringify(form.responsibles),
-      lossReasons:  JSON.stringify(form.lossReasons),
-      leadSources:  JSON.stringify(form.leadSources),
-      taskTypes:    JSON.stringify(form.taskTypes),
+      banks:         JSON.stringify(form.banks),
+      responsibles:  JSON.stringify(form.responsibles),
+      lossReasons:   JSON.stringify(form.lossReasons),
+      opLossReasons: JSON.stringify(form.opLossReasons),
+      leadSources:   JSON.stringify(form.leadSources),
+      taskTypes:     JSON.stringify(form.taskTypes),
     })
   }
 
@@ -177,12 +174,20 @@ export default function Settings({ settings, onSave }) {
         placeholder="Novo tipo de tarefa…"
       />
 
-      {/* ── Motivos de perda ─────────────────────────────────────────────── */}
-      <SectionTitle icon="ti-circle-x" label="Motivos de perda" />
+      {/* ── Motivos de perda comercial ───────────────────────────────────── */}
+      <SectionTitle icon="ti-circle-x" label="Motivos de perda — Funil Comercial" />
       <TagEditor
         items={form.lossReasons}
         onChange={v => set('lossReasons', v)}
-        placeholder="Novo motivo de perda…"
+        placeholder="Novo motivo (ex: Sem margem)…"
+      />
+
+      {/* ── Motivos de perda operacional ─────────────────────────────────── */}
+      <SectionTitle icon="ti-circle-x" label="Motivos de perda — Funil Operacional" />
+      <TagEditor
+        items={form.opLossReasons}
+        onChange={v => set('opLossReasons', v)}
+        placeholder="Novo motivo (ex: Banco recusou)…"
       />
 
       {/* ── Acesso compartilhado ─────────────────────────────────────────── */}
@@ -246,7 +251,7 @@ export default function Settings({ settings, onSave }) {
 
       {/* Botões */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 6 }}>
-        <button onClick={() => setForm({ ...settings, banks: JSON.parse(settings.banks || '[]'), responsibles: JSON.parse(settings.responsibles || '[]'), lossReasons: JSON.parse(settings.lossReasons || JSON.stringify(LOSS_REASONS)), leadSources: JSON.parse(settings.leadSources || JSON.stringify(LEAD_SOURCES)) })} disabled={!dirty} style={{ padding: '9px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-secondary)', fontSize: 13, opacity: dirty ? 1 : 0.4, cursor: dirty ? 'pointer' : 'default' }}>
+        <button onClick={() => setForm(initial)} disabled={!dirty} style={{ padding: '9px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-secondary)', fontSize: 13, opacity: dirty ? 1 : 0.4, cursor: dirty ? 'pointer' : 'default' }}>
           Desfazer
         </button>
         <button onClick={handleSave} disabled={!dirty} style={{ padding: '9px 22px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-blue-mid)', color: '#fff', fontSize: 13, fontWeight: 500, opacity: dirty ? 1 : 0.4, cursor: dirty ? 'pointer' : 'default' }}>
