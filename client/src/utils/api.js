@@ -74,6 +74,30 @@ export const apiUpdateOperation      = (id, data) => fetch(url(`/api/operations/
   body: JSON.stringify(data),
 }).then(handle)
 
+// Receipts (recebimentos de PIX do cliente)
+export const apiListReceipts   = (leadId)        => fetch(url(`/api/leads/${leadId}/receipts`)).then(handle)
+export const apiCreateReceipt  = (leadId, data)  => fetch(url(`/api/leads/${leadId}/receipts`), {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data),
+}).then(handle)
+export const apiUpdateReceipt  = (leadId, id, data) => fetch(url(`/api/leads/${leadId}/receipts/${id}`), {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data),
+}).then(handle)
+export const apiDeleteReceipt  = (leadId, id)    => fetch(url(`/api/leads/${leadId}/receipts/${id}`), { method: 'DELETE' }).then(handle)
+
+// Payouts (repasses para parceiros/indicações)
+export const apiListPayouts    = (leadId)        => fetch(url(`/api/leads/${leadId}/payouts`)).then(handle)
+export const apiCreatePayout   = (leadId, data)  => fetch(url(`/api/leads/${leadId}/payouts`), {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data),
+}).then(handle)
+export const apiUpdatePayout   = (leadId, id, data) => fetch(url(`/api/leads/${leadId}/payouts/${id}`), {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data),
+}).then(handle)
+export const apiDeletePayout   = (leadId, id)    => fetch(url(`/api/leads/${leadId}/payouts/${id}`), { method: 'DELETE' }).then(handle)
+
 // Tasks
 export const apiListTasks          = ()             => fetch(url('/api/tasks')).then(handle)
 export const apiListContractTasks  = (contractId)   => fetch(url(`/api/contracts/${contractId}/tasks`)).then(handle)

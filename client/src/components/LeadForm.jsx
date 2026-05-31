@@ -406,7 +406,7 @@ export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing
       </div>{/* fim seção 1 */}
 
       {/* ═══ SEÇÃO 2 — Contratos bancários ══════════════════════════════════ */}
-      {isEditing && !isNewLead && (
+      {false && isEditing && !isNewLead && (
         <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)', overflow: 'hidden', background: 'var(--color-surface)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--color-border)' }}>
             <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--color-blue-bg)', color: 'var(--color-blue-dark)', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>2</span>
@@ -432,7 +432,7 @@ export default function LeadForm({ form, onChange, onSubmit, onCancel, isEditing
         }}>
           {/* Cabeçalho */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--color-border)' }}>
-            <span style={{ width: 22, height: 22, borderRadius: '50%', background: '#EDE8D8', color: '#6B5E3E', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>3</span>
+            <span style={{ width: 22, height: 22, borderRadius: '50%', background: '#EDE8D8', color: '#6B5E3E', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>2</span>
             <i className="ti ti-file-signature" style={{ fontSize: 16, color: 'var(--color-blue-mid)' }} aria-hidden="true" />
             <div>
               <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>Contrato de Assessoria</p>

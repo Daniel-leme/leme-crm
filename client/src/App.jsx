@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { emptyLead } from './constants'
 import {
   apiListLeads, apiCreateLead, apiUpdateLead, apiDeleteLead,
@@ -22,7 +22,7 @@ import { useNotifications } from './hooks/useNotifications'
 const SIDEBAR_W   = 230
 const CONTENT_MAX = 920
 
-function TaskSidePanel({ lead, settings, onTaskCreated, onTaskEdited, onTaskDeleted, onContractUpdate }) {
+function TaskSidePanel({ lead, settings, onTaskCreated, onTaskEdited, onTaskDeleted, onContractUpdate, refreshToken }) {
   const [pendingCount, setPendingCount] = useState(0)
   return (
     <aside style={{
@@ -50,6 +50,7 @@ function TaskSidePanel({ lead, settings, onTaskCreated, onTaskEdited, onTaskDele
           onTaskDeleted={onTaskDeleted}
           onPendingCount={setPendingCount}
           onContractUpdate={onContractUpdate}
+          refreshToken={refreshToken}
         />
       </div>
     </aside>
@@ -79,7 +80,8 @@ export default function App() {
   const [connState,    setConnState]    = useState('checking')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [alertMsg, setAlertMsg] = useState(null) // { title, message }
-  const [menuOpen,     setMenuOpen]     = useState(false)
+  const [menuOpen,        setMenuOpen]        = useState(false)
+  const [taskPanelToken,  setTaskPanelToken]  = useState(0)
   const isMobile = useIsMobile()
 
   // ─── Carga inicial ─────────────────────────────────────────────────────────
@@ -91,6 +93,7 @@ export default function App() {
       setSettings(st)
       setTasks(ts)
       setConnState('online')
+      setTaskPanelToken(v => v + 1)
     } catch (e) {
       console.error('Falha ao conectar com o servidor:', e)
       setConnState('offline')
@@ -110,7 +113,29 @@ export default function App() {
   }, [])
 
   // Central de notificações
-  const { notifications, unreadCount, toasts, dismissToast, clearNotifications, removeNotificationsForTask, clearFiredForTask } = useNotifications(tasks)
+  const { notifications, unreadCount, toasts, dismissToast, clearNotifications, removeNotificationsForTask, clearFiredForTask, notifyNewOperation } = useNotifications(tasks)
+
+  // Detecta novas operações e notifica — persiste IDs no localStorage para sobreviver ao F5
+  const knownOpIds = useRef(null)
+  useEffect(() => {
+    if (operations.length === 0) return
+    // Na primeira execução: carrega do storage — tudo que já estava lá é "conhecido", sem notificar
+    if (knownOpIds.current === null) {
+      try { knownOpIds.current = new Set(JSON.parse(localStorage.getItem('leme_known_ops') || '[]')) }
+      catch { knownOpIds.current = new Set() }
+      // Registra todas as ops atuais como conhecidas sem notificar
+      operations.forEach(op => knownOpIds.current.add(op.id))
+      localStorage.setItem('leme_known_ops', JSON.stringify([...knownOpIds.current]))
+      return
+    }
+    // Nas atualizações seguintes: ops que não estavam no Set são realmente novas
+    const newOnes = operations.filter(op => !knownOpIds.current.has(op.id))
+    newOnes.forEach(op => {
+      knownOpIds.current.add(op.id)
+      notifyNewOperation(op.lead_name || 'Lead', op.lead_id)
+    })
+    if (newOnes.length > 0) localStorage.setItem('leme_known_ops', JSON.stringify([...knownOpIds.current]))
+  }, [operations]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setMenuOpen(false) }, [view])
 
@@ -278,14 +303,17 @@ export default function App() {
       </div>
 
       <nav style={{ padding: '0 10px', flex: 1 }}>
-        {navItems.map(item => (
+        {navItems.map(item => {
+          const activeBg    = item.label === 'Funil Operacional' ? '#EBF3FC' : item.label === 'Funil Comercial' ? '#F1EFE8' : 'var(--color-blue-bg)'
+          const activeColor = item.label === 'Funil Operacional' ? '#1565C0' : item.label === 'Funil Comercial' ? '#2C2C2A' : 'var(--color-blue-dark)'
+          return (
           <button key={item.label} onClick={item.action} style={{
             display: 'flex', alignItems: 'center', gap: 9,
             width: '100%', padding: '10px 10px',
             borderRadius: 'var(--radius-md)', border: 'none', textAlign: 'left',
             fontSize: 14, fontWeight: item.active ? 500 : 400,
-            background: item.active ? 'var(--color-blue-bg)' : 'transparent',
-            color: item.active ? 'var(--color-blue-dark)' : 'var(--color-text-secondary)',
+            background: item.active ? activeBg : 'transparent',
+            color: item.active ? activeColor : 'var(--color-text-secondary)',
             marginBottom: 4, cursor: 'pointer',
           }}>
             <i className={`ti ${item.icon}`} style={{ fontSize: 18 }} aria-hidden="true" />
@@ -303,7 +331,8 @@ export default function App() {
               </div>
             )}
           </button>
-        ))}
+          )
+        })}
       </nav>
 
       <div style={{ padding: '10px 10px 0' }}>
@@ -405,7 +434,7 @@ export default function App() {
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
           {/* Coluna principal */}
-          <div style={{ flex: 1, overflowY: 'scroll', padding: isMobile ? '16px' : '28px', minWidth: 0 }}>
+          <div style={{ flex: 1, overflowY: 'scroll', padding: isMobile ? '16px' : '28px', minWidth: 0, background: isOperationsView ? '#F0F4F8' : 'var(--color-bg)', transition: 'background 0.3s' }}>
             <div style={{ maxWidth: CONTENT_MAX, margin: '0 auto' }}>
 
               {connState === 'offline' && (
@@ -442,7 +471,7 @@ export default function App() {
               )}
 
               {view === 'operations' && (
-                <OperationList operations={operations} onSelect={openOperation} />
+                <OperationList operations={operations} tasks={tasks} onSelect={openOperation} />
               )}
 
               {view === 'tasks' && settings && (
@@ -457,6 +486,8 @@ export default function App() {
                   onStatusChange={changeOperationStatus}
                   onOpenLead={() => { setSelectedId(selectedOp.lead_id); setView('detail') }}
                   onEditLead={() => { const l = leads.find(x => x.id === selectedOp.lead_id); if (l) { setForm({ ...l }); setView('form') } }}
+                  onDeleteLead={() => setConfirmDelete(true)}
+                  onLeadStatusChange={changeStatus}
                   onRefresh={refresh}
                   onTaskEdited={clearFiredForTask}
                   onTaskDeleted={removeNotificationsForTask}
@@ -473,6 +504,7 @@ export default function App() {
               onTaskCreated={refresh}
               onTaskEdited={clearFiredForTask}
               onTaskDeleted={removeNotificationsForTask}
+              refreshToken={taskPanelToken}
               onContractUpdate={async (contractId, data) => {
                 await apiUpdateContract(selected.id, contractId, data)
                 refresh()
@@ -488,6 +520,7 @@ export default function App() {
                 onTaskCreated={refresh}
                 onTaskEdited={clearFiredForTask}
                 onTaskDeleted={removeNotificationsForTask}
+                refreshToken={taskPanelToken}
                 onContractUpdate={async (contractId, data) => {
                   await apiUpdateContract(opLead.id, contractId, data)
                   refresh()

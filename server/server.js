@@ -82,11 +82,13 @@ async function initDb() {
       notes          TEXT DEFAULT '',
       "pdfFile"      TEXT DEFAULT '',
       "pdfName"      TEXT DEFAULT '',
+      "refundReceived" INTEGER DEFAULT 0,
       "createdAt"    TEXT NOT NULL DEFAULT '',
       "updatedAt"    TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (lead_id) REFERENCES leads(id)
     )
   `)
+  await run(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "refundReceived" INTEGER DEFAULT 0`).catch(() => {})
 
   await run(`
     CREATE TABLE IF NOT EXISTS tasks (
@@ -102,6 +104,34 @@ async function initDb() {
       "isAuto"     INTEGER DEFAULT 0,
       "createdAt"  TEXT NOT NULL DEFAULT '',
       "updatedAt"  TEXT NOT NULL DEFAULT '',
+      FOREIGN KEY (lead_id) REFERENCES leads(id)
+    )
+  `)
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS receipts (
+      id          TEXT PRIMARY KEY,
+      lead_id     TEXT NOT NULL,
+      amount      REAL NOT NULL DEFAULT 0,
+      date        TEXT NOT NULL DEFAULT '',
+      description TEXT DEFAULT '',
+      "createdAt" TEXT NOT NULL DEFAULT '',
+      "updatedAt" TEXT NOT NULL DEFAULT '',
+      FOREIGN KEY (lead_id) REFERENCES leads(id)
+    )
+  `)
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS payouts (
+      id          TEXT PRIMARY KEY,
+      lead_id     TEXT NOT NULL,
+      recipient   TEXT NOT NULL DEFAULT '',
+      amount      REAL NOT NULL DEFAULT 0,
+      date        TEXT NOT NULL DEFAULT '',
+      description TEXT DEFAULT '',
+      paid        INTEGER DEFAULT 0,
+      "createdAt" TEXT NOT NULL DEFAULT '',
+      "updatedAt" TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (lead_id) REFERENCES leads(id)
     )
   `)
@@ -354,8 +384,8 @@ app.put('/api/leads/:lead_id/contracts/:id', async (req, res) => {
     if (!ex) return res.status(404).json({ error: 'Contrato não encontrado' })
     await run(`
       UPDATE contracts SET bank=$1, type=$2, status=$3, "embeddedValue"=$4, "productsCount"=$5,
-        notes=$6, "pdfFile"=$7, "pdfName"=$8, "updatedAt"=$9
-      WHERE id=$10
+        notes=$6, "pdfFile"=$7, "pdfName"=$8, "refundReceived"=$9, "updatedAt"=$10
+      WHERE id=$11
     `, [
       c.bank??ex.bank, c.type??ex.type, c.status??ex.status,
       parseFloat(c.embeddedValue??ex.embeddedValue)||0,
@@ -363,6 +393,7 @@ app.put('/api/leads/:lead_id/contracts/:id', async (req, res) => {
       c.notes??ex.notes,
       c.pdfFile!==undefined ? c.pdfFile : ex.pdfFile,
       c.pdfName??ex.pdfName,
+      c.refundReceived!==undefined ? (c.refundReceived ? 1 : 0) : (ex.refundReceived||0),
       now, req.params.id,
     ])
     await syncLeadEmbedded(req.params.lead_id, now)
@@ -472,6 +503,80 @@ app.put('/api/tasks/:id', async (req, res) => {
 
 app.delete('/api/tasks/:id', async (req, res) => {
   try { await run(`DELETE FROM tasks WHERE id = $1`, [req.params.id]); res.json({ ok: true }) }
+  catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ─── Receipts ─────────────────────────────────────────────────────────────────
+
+app.get('/api/leads/:lead_id/receipts', async (req, res) => {
+  try { res.json(await all(`SELECT * FROM receipts WHERE lead_id = $1 ORDER BY date ASC, "createdAt" ASC`, [req.params.lead_id])) }
+  catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.post('/api/leads/:lead_id/receipts', async (req, res) => {
+  try {
+    const r = req.body
+    const now = new Date().toISOString()
+    const id = genId()
+    await run(`
+      INSERT INTO receipts (id, lead_id, amount, date, description, "createdAt", "updatedAt")
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+    `, [id, req.params.lead_id, parseFloat(r.amount)||0, r.date||'', r.description||'', now, now])
+    res.status(201).json(await get(`SELECT * FROM receipts WHERE id = $1`, [id]))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.put('/api/leads/:lead_id/receipts/:id', async (req, res) => {
+  try {
+    const r = req.body
+    const now = new Date().toISOString()
+    const ex = await get(`SELECT * FROM receipts WHERE id = $1 AND lead_id = $2`, [req.params.id, req.params.lead_id])
+    if (!ex) return res.status(404).json({ error: 'Recebimento não encontrado' })
+    await run(`UPDATE receipts SET amount=$1, date=$2, description=$3, "updatedAt"=$4 WHERE id=$5`,
+      [parseFloat(r.amount??ex.amount)||0, r.date??ex.date, r.description??ex.description, now, req.params.id])
+    res.json(await get(`SELECT * FROM receipts WHERE id = $1`, [req.params.id]))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.delete('/api/leads/:lead_id/receipts/:id', async (req, res) => {
+  try { await run(`DELETE FROM receipts WHERE id = $1 AND lead_id = $2`, [req.params.id, req.params.lead_id]); res.json({ ok: true }) }
+  catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ─── Payouts ──────────────────────────────────────────────────────────────────
+
+app.get('/api/leads/:lead_id/payouts', async (req, res) => {
+  try { res.json(await all(`SELECT * FROM payouts WHERE lead_id = $1 ORDER BY date ASC, "createdAt" ASC`, [req.params.lead_id])) }
+  catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.post('/api/leads/:lead_id/payouts', async (req, res) => {
+  try {
+    const p = req.body
+    const now = new Date().toISOString()
+    const id = genId()
+    await run(`
+      INSERT INTO payouts (id, lead_id, recipient, amount, date, description, paid, "createdAt", "updatedAt")
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    `, [id, req.params.lead_id, p.recipient||'', parseFloat(p.amount)||0, p.date||'', p.description||'', p.paid?1:0, now, now])
+    res.status(201).json(await get(`SELECT * FROM payouts WHERE id = $1`, [id]))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.put('/api/leads/:lead_id/payouts/:id', async (req, res) => {
+  try {
+    const p = req.body
+    const now = new Date().toISOString()
+    const ex = await get(`SELECT * FROM payouts WHERE id = $1 AND lead_id = $2`, [req.params.id, req.params.lead_id])
+    if (!ex) return res.status(404).json({ error: 'Repasse não encontrado' })
+    await run(`UPDATE payouts SET recipient=$1, amount=$2, date=$3, description=$4, paid=$5, "updatedAt"=$6 WHERE id=$7`,
+      [p.recipient??ex.recipient, parseFloat(p.amount??ex.amount)||0, p.date??ex.date, p.description??ex.description, (p.paid!==undefined?p.paid:ex.paid)?1:0, now, req.params.id])
+    res.json(await get(`SELECT * FROM payouts WHERE id = $1`, [req.params.id]))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.delete('/api/leads/:lead_id/payouts/:id', async (req, res) => {
+  try { await run(`DELETE FROM payouts WHERE id = $1 AND lead_id = $2`, [req.params.id, req.params.lead_id]); res.json({ ok: true }) }
   catch (e) { res.status(500).json({ error: e.message }) }
 })
 

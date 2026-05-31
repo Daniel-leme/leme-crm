@@ -511,6 +511,17 @@ export default function LeadList({ leads, tasks, operations, onSelect, onNew }) 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
+      {/* ── Banner do funil ──────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', borderRadius: 'var(--radius-lg)', background: 'linear-gradient(135deg, #2C2C2A 0%, #3D3B37 100%)', color: '#fff' }}>
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <i className="ti ti-briefcase" style={{ fontSize: 18 }} />
+        </div>
+        <div>
+          <p style={{ margin: 0, fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>Funil Comercial</p>
+          <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>Gestão de leads e conversão</p>
+        </div>
+      </div>
+
       {/* ── Cards de métricas ────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
         {[

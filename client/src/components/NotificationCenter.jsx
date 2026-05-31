@@ -5,6 +5,7 @@ const KIND_META = {
   now:        { color: '#C62828', bg: '#FEE2E2', icon: 'ti-alarm',  label: 'Agora!' },
   allday:     { color: '#1565C0', bg: '#E3F2FD', icon: 'ti-calendar-event', label: 'Hoje' },
   late_notime:{ color: '#B45309', bg: '#FFF8E1', icon: 'ti-alert-triangle', label: 'Atrasada' },
+  new_op:     { color: '#7C3AED', bg: '#F5F3FF', icon: 'ti-settings-2', label: 'Operacional' },
 }
 
 // ── Sino + Painel dropdown ─────────────────────────────────────────────────

@@ -228,6 +228,22 @@ export function useNotifications(tasks) {
 
   const unreadCount = notifications.length
 
+  const notifyNewOperation = useCallback((leadName, leadId) => {
+    const key = `new_op|${leadId}|${todayStr()}`
+    const notif = {
+      id:    key,
+      title: '📋 Nova operação',
+      body:  `${leadName} entrou no funil operacional`,
+      kind:  'new_op',
+      task:  { lead_id: leadId },
+      time:  new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    }
+    setNotifications(prev => [notif, ...prev].slice(0, 50))
+    setToasts(prev => [...prev, { ...notif, toastId: key + '_toast' }])
+    sendPush(notif.title, notif.body)
+    playBeep('allday')
+  }, [])
+
   // Dispara notificação fake para teste — remover depois
   const triggerTest = useCallback((kind = 'now') => {
     const fakeTask = { id: 'test_' + Date.now(), lead_id: null, lead_name: 'Lead de Teste', type: 'WhatsApp / Follow-up', dueDate: todayStr(), dueTime: nowHHMM() }
@@ -254,5 +270,5 @@ export function useNotifications(tasks) {
     skipUntil.current = Date.now() + 10_000  // ignora o check disparado pelo re-render de tasks
   }, [])
 
-  return { notifications, unreadCount, toasts, dismissToast, clearNotifications, removeNotificationsForTask, check, triggerTest, resetFired, clearFiredForTask }
+  return { notifications, unreadCount, toasts, dismissToast, clearNotifications, removeNotificationsForTask, check, triggerTest, resetFired, clearFiredForTask, notifyNewOperation }
 }

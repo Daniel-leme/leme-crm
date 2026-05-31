@@ -76,7 +76,6 @@ function TaskCard({ task, onDone, onEdit, onDelete, onOpenLead, col }) {
         border: `1px solid ${col.cardBorder}`,
         background: hovered && onOpenLead ? 'var(--color-surface)' : col.cardBg,
         cursor: onOpenLead ? 'pointer' : 'default',
-        overflow: 'hidden',
         transition: 'box-shadow 0.15s',
         boxShadow: hovered && onOpenLead ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
       }}
